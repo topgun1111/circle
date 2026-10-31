@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Circle to Search</string>
+    <string name="trigger_label">Circle to Search</string>
+    <string name="service_description">Detects your side button, takes a screenshot of the current screen and shows the circle overlay. Nothing leaves your phone until you pick a search app.</string>
+</resources>
