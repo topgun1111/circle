@@ -197,11 +197,11 @@ class MainActivity : Activity() {
 
                 // ---- Advanced ----
                 add(heading("Advanced"), 20)
-                expandable("Keep it running", "HyperOS kills background apps; do these once") {
+                expandable("Keep it running", "Vivo / Xiaomi kill background apps; do these once") {
                     add(hint("When that happens Android shows the service as “not working” and does not restart it."), 10)
                     buttons(button("Autostart ON") { KeepAlive.openAutostart(this@MainActivity) },
                         button("Battery: no limits") { KeepAlive.openBatterySaver(this@MainActivity) })
-                    add(hint("Also: open recents, long-press this app's card and tap the lock icon."), 10)
+                    add(hint("Also: open recents, long-press this app's card and tap the lock icon. On vivo: i Manager → Apps & permissions → Autostart, and Battery → Background power consumption → Allow."), 10)
                     divide()
                     val (row, _) = switchRow("Running notification", "Recommended; also needed for back-tap",
                         Prefs.keepAliveNotif(this@MainActivity)) { _, on ->
