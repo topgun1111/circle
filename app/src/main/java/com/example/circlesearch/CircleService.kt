@@ -2,12 +2,15 @@ package com.example.circlesearch
 
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
+import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
+import android.provider.MediaStore
 import android.view.Display
 import android.view.Gravity
 import android.view.View
@@ -37,14 +40,41 @@ class CircleService : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var overlay: OverlayView? = null
+    private var suppressed = false // true while a capture / the selection overlay is showing
+    private var hiddenByApp = false
+    private var currentPkg: String? = null
+    private var hiddenApps: Set<String> = emptySet()
     private var lastTrigger = 0L
 
     override fun onServiceConnected() {
         instance = this
+        hiddenApps = Prefs.hiddenApps(this)
         applyFloating()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString() ?: return
+        // Ignore our own windows, system UI and the keyboard, so they don't count as "the current app".
+        if (pkg == packageName || pkg == "com.android.systemui" || pkg == imePackage()) return
+        if (pkg == currentPkg) return
+        currentPkg = pkg
+        updateAppHidden()
+    }
+
+    private fun imePackage(): String? =
+        Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)?.substringBefore('/')
+
+    private fun updateAppHidden() {
+        hiddenByApp = currentPkg != null && currentPkg in hiddenApps
+        syncFloating()
+    }
+
+    /** Called by the setup screen after the "hide in these apps" list changed. */
+    fun reloadHiddenApps() {
+        hiddenApps = Prefs.hiddenApps(this)
+        updateAppHidden()
+    }
 
     override fun onInterrupt() {}
 
@@ -92,12 +122,11 @@ class CircleService : AccessibilityService() {
             removeOverlay()
             return
         }
-        floating?.visibility = View.INVISIBLE // hide before the screenshot is taken
+        suppressFloating() // hide before the screenshot is taken
         main.postDelayed({ capture() }, delayMs)
     }
 
     private fun capture() {
-        floating?.visibility = View.INVISIBLE // keep it out of the screenshot
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
                 // Copy the (large) bitmap off the main thread.
@@ -128,11 +157,17 @@ class CircleService : AccessibilityService() {
 
     private fun showOverlay(shot: Bitmap) {
         removeOverlay()
-        floating?.visibility = View.INVISIBLE
+        suppressFloating()
         val view = OverlayView(
             context = this,
             shot = shot,
-            onCrop = { crop -> search(crop) },
+            onAction = { action, crop ->
+                when (action) {
+                    OverlayView.ACTION_SAVE -> save(crop)
+                    OverlayView.ACTION_SHARE -> search(crop, forceChooser = true)
+                    else -> search(crop, forceChooser = false)
+                }
+            },
             onCancel = { removeOverlay() }
         )
         val lp = WindowManager.LayoutParams(
@@ -172,7 +207,7 @@ class CircleService : AccessibilityService() {
         if (floating != null) return
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val d = resources.displayMetrics.density
-        val size = (48 * d).toInt()
+        val size = (Prefs.floatSize(this) * d).toInt()
         val b = wm.currentWindowMetrics.bounds
         val lp = WindowManager.LayoutParams(
             size, size,
@@ -190,6 +225,8 @@ class CircleService : AccessibilityService() {
             context = this,
             wm = wm,
             lp = lp,
+            edgeMode = Prefs.floatEdge(this),
+            baseAlpha = Prefs.floatOpacity(this) / 100f,
             onTap = { trigger(150) },
             onClose = {
                 Prefs.setFloating(this, false)
@@ -200,6 +237,7 @@ class CircleService : AccessibilityService() {
         try {
             wm.addView(v, lp)
             floating = v
+            syncFloating()
         } catch (e: Exception) {
             toast("Could not show the floating button: ${e.message}")
         }
@@ -214,13 +252,29 @@ class CircleService : AccessibilityService() {
         }
     }
 
+    private fun suppressFloating() {
+        suppressed = true
+        syncFloating()
+    }
+
     private fun restoreFloating() {
-        floating?.visibility = View.VISIBLE
+        suppressed = false
+        syncFloating()
+    }
+
+    private fun syncFloating() {
+        floating?.visibility = if (suppressed || hiddenByApp) View.INVISIBLE else View.VISIBLE
+    }
+
+    /** Rebuilds the bubble after size / opacity / edge-mode settings changed. */
+    fun refreshFloating() {
+        hideFloating()
+        applyFloating()
     }
 
     // ---- Search hand-off --------------------------------------------------
 
-    private fun search(crop: Bitmap) {
+    private fun search(crop: Bitmap, forceChooser: Boolean) {
         io.execute {
             val file = try {
                 val dir = File(cacheDir, "shared").apply { mkdirs() }
@@ -234,7 +288,7 @@ class CircleService : AccessibilityService() {
                 null
             }
             main.post {
-                if (file == null) toast("Could not save the cropped image") else launchSearch(file)
+                if (file == null) toast("Could not save the cropped image") else launchSearch(file, forceChooser)
                 // Remove the overlay only after the search app was started, so we still
                 // have a visible window when launching it from the background.
                 removeOverlay()
@@ -242,7 +296,29 @@ class CircleService : AccessibilityService() {
         }
     }
 
-    private fun launchSearch(file: File) {
+    private fun save(crop: Bitmap) {
+        io.execute {
+            val ok = try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "Circle_${System.currentTimeMillis()}.jpg")
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CircleSearch")
+                }
+                val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                    ?: throw IllegalStateException("no uri")
+                contentResolver.openOutputStream(uri)!!.use { crop.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                true
+            } catch (_: Exception) {
+                false
+            }
+            main.post {
+                toast(if (ok) "Saved to Pictures/CircleSearch" else "Could not save the image")
+                removeOverlay()
+            }
+        }
+    }
+
+    private fun launchSearch(file: File, forceChooser: Boolean) {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "image/jpeg"
@@ -251,7 +327,7 @@ class CircleService : AccessibilityService() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        if (!Prefs.useShareSheet(this)) {
+        if (!forceChooser && !Prefs.useShareSheet(this)) {
             try {
                 startActivity(Intent(send).setPackage("com.google.android.googlequicksearchbox"))
                 return

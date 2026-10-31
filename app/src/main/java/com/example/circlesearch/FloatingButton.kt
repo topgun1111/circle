@@ -1,5 +1,6 @@
 package com.example.circlesearch
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
@@ -19,12 +20,17 @@ import kotlin.math.abs
 /**
  * Small draggable bubble. Tap = start Circle to Search.
  * Long-press = it turns into a red X; tap the X to close the bubble (it reverts by itself after 3 s).
+ *
+ * Optional edge mode: after you let go it snaps to the nearest screen edge, and after 3 s idle it
+ * tucks half off-screen and fades. Touching it brings it back.
  */
 @SuppressLint("ViewConstructor")
 class FloatingButton(
     context: Context,
     private val wm: WindowManager,
     private val lp: WindowManager.LayoutParams,
+    private val edgeMode: Boolean,
+    private val baseAlpha: Float,
     private val onTap: () -> Unit,
     private val onClose: () -> Unit
 ) : View(context) {
@@ -36,10 +42,12 @@ class FloatingButton(
     private var closeMode = false
     private var dragging = false
     private var longFired = false
+    private var tucked = false
     private var downRawX = 0f
     private var downRawY = 0f
     private var startX = 0
     private var startY = 0
+    private var anim: ValueAnimator? = null
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6202124.toInt() }
     private val redFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xF0D93025.toInt() }
@@ -64,6 +72,19 @@ class FloatingButton(
     private val revert = Runnable {
         closeMode = false
         invalidate()
+        scheduleIdle()
+    }
+    private val idle = Runnable {
+        if (edgeMode && !closeMode && !dragging) tuck()
+    }
+
+    init {
+        alpha = baseAlpha
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        scheduleIdle()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -80,20 +101,65 @@ class FloatingButton(
         val r = width / 2f - 2 * d
         if (closeMode) {
             canvas.drawCircle(cx, cy, r, redFill)
-            val s = 7 * d
+            val s = width * 0.146f
             canvas.drawLine(cx - s, cy - s, cx + s, cy + s, icon)
             canvas.drawLine(cx - s, cy + s, cx + s, cy - s, icon)
         } else {
             canvas.drawCircle(cx, cy, r, fill)
             canvas.drawCircle(cx, cy, r, ring)
-            canvas.drawCircle(cx, cy, 8 * d, icon)
+            canvas.drawCircle(cx, cy, width * 0.17f, icon)
         }
     }
+
+    // ---- Edge mode ----------------------------------------------------------
+
+    private fun screenW() = wm.currentWindowMetrics.bounds.width()
+
+    private fun scheduleIdle() {
+        h.removeCallbacks(idle)
+        if (edgeMode) h.postDelayed(idle, 3000)
+    }
+
+    private fun edgeX(): Int = if (lp.x + lp.width / 2 < screenW() / 2) 0 else screenW() - lp.width
+
+    private fun animateX(to: Int) {
+        anim?.cancel()
+        anim = ValueAnimator.ofInt(lp.x, to).apply {
+            duration = 160
+            addUpdateListener {
+                lp.x = it.animatedValue as Int
+                try { wm.updateViewLayout(this@FloatingButton, lp) } catch (_: Exception) {}
+            }
+            start()
+        }
+    }
+
+    private fun tuck() {
+        if (tucked) return
+        tucked = true
+        val left = lp.x + lp.width / 2 < screenW() / 2
+        animateX(if (left) -lp.width / 2 else screenW() - lp.width / 2)
+        animate().alpha(baseAlpha * 0.5f).setDuration(200).start()
+    }
+
+    private fun untuck() {
+        if (!tucked) return
+        tucked = false
+        anim?.cancel()
+        lp.x = if (lp.x + lp.width / 2 < screenW() / 2) 0 else screenW() - lp.width
+        try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+        animate().alpha(baseAlpha).setDuration(120).start()
+    }
+
+    // ---- Touch --------------------------------------------------------------
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                h.removeCallbacks(idle)
+                anim?.cancel()
+                untuck()
                 downRawX = e.rawX
                 downRawY = e.rawY
                 startX = lp.x
@@ -119,17 +185,23 @@ class FloatingButton(
             MotionEvent.ACTION_UP -> {
                 h.removeCallbacks(longPress)
                 if (dragging) {
-                    Prefs.savePos(context, lp.x, lp.y)
+                    if (edgeMode) animateX(edgeX())
+                    Prefs.savePos(context, if (edgeMode) edgeX() else lp.x, lp.y)
+                    scheduleIdle()
                 } else if (!longFired) {
                     if (closeMode) {
                         h.removeCallbacks(revert)
                         onClose()
                     } else {
                         onTap()
+                        scheduleIdle()
                     }
                 }
             }
-            MotionEvent.ACTION_CANCEL -> h.removeCallbacks(longPress)
+            MotionEvent.ACTION_CANCEL -> {
+                h.removeCallbacks(longPress)
+                scheduleIdle()
+            }
         }
         return true
     }
@@ -142,11 +214,15 @@ class FloatingButton(
 
     override fun onConfigurationChanged(newConfig: Configuration?) {
         super.onConfigurationChanged(newConfig)
+        tucked = false
+        alpha = baseAlpha
         clamp() // fold/unfold or rotate: keep the bubble on screen
         try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+        scheduleIdle()
     }
 
     override fun onDetachedFromWindow() {
+        anim?.cancel()
         h.removeCallbacksAndMessages(null)
         super.onDetachedFromWindow()
     }

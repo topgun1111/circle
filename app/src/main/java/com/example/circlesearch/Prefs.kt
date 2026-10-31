@@ -32,4 +32,16 @@ object Prefs {
     fun floatX(c: Context) = p(c).getInt("float_x", -1)
     fun floatY(c: Context) = p(c).getInt("float_y", -1)
     fun savePos(c: Context, x: Int, y: Int) = p(c).edit().putInt("float_x", x).putInt("float_y", y).apply()
+
+    fun rectMode(c: Context) = p(c).getBoolean("rect_mode", false)
+    fun setRectMode(c: Context, v: Boolean) = p(c).edit().putBoolean("rect_mode", v).apply()
+
+    fun floatSize(c: Context) = p(c).getInt("float_size", 48)
+    fun setFloatSize(c: Context, v: Int) = p(c).edit().putInt("float_size", v).apply()
+    fun floatOpacity(c: Context) = p(c).getInt("float_opacity", 100)
+    fun setFloatOpacity(c: Context, v: Int) = p(c).edit().putInt("float_opacity", v).apply()
+    fun floatEdge(c: Context) = p(c).getBoolean("float_edge", false)
+    fun setFloatEdge(c: Context, v: Boolean) = p(c).edit().putBoolean("float_edge", v).apply()
+    fun hiddenApps(c: Context): Set<String> = HashSet(p(c).getStringSet("hidden_apps", emptySet()) ?: emptySet())
+    fun setHiddenApps(c: Context, v: Set<String>) = p(c).edit().putStringSet("hidden_apps", HashSet(v)).apply()
 }
