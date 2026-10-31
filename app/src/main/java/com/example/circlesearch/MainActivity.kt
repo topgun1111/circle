@@ -52,6 +52,9 @@ class MainActivity : Activity() {
         }
 
         root.addView(label("Circle to Search", 26f, true))
+        root.addView(button("Settings and updates (v${Updater.currentName(this)})") {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        })
 
         // Step 1
         root.addView(label("1. Turn on the service", 17f, true))

@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write # needed to publish the release
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,10 +29,30 @@ jobs:
         with:
           gradle-version: 8.7
 
+      # Version = versionBase from gradle.properties + this run's number, e.g. 1.0.12.
+      # The run number goes up on every workflow run, so every build gets a new version automatically.
+      - name: Work out version
+        run: |
+          BASE=$(grep '^versionBase=' gradle.properties | cut -d= -f2)
+          echo "VERSION=$BASE.${{ github.run_number }}" >> "$GITHUB_ENV"
+
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "circle-search-$VERSION.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: circle-search-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: circle-search-${{ env.VERSION }}
+          path: circle-search-${{ env.VERSION }}.apk
+
+      # The in-app updater reads the latest release and downloads the attached APK.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v$VERSION" "circle-search-$VERSION.apk" \
+            --target "${{ github.sha }}" \
+            --title "Circle to Search $VERSION" \
+            --generate-notes
