@@ -1,7 +1,13 @@
 package com.example.circlesearch
 
 import android.annotation.SuppressLint
+import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.BlurMaskFilter
+import android.graphics.Matrix
+import android.graphics.SweepGradient
+import android.view.HapticFeedbackConstants
+import android.view.animation.LinearInterpolator
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
@@ -55,19 +61,30 @@ class OverlayView(
     private var barIndex = -1
 
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val dimPaint = Paint().apply { color = 0x99000000.toInt() }
+    private val dimPaint = Paint().apply { color = 0xFF000000.toInt() }
+    private val tintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1EFFFFFF }
+    private val bracketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 4 * d
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val primaryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF4285F4.toInt() }
+    private val bracketPath = Path()
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 5 * d
+        strokeWidth = 3.5f * d
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 14 * d
+        strokeWidth = 10 * d
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        alpha = 90
+        alpha = 200
+        maskFilter = BlurMaskFilter(9 * d, BlurMaskFilter.Blur.NORMAL)
     }
     private val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCC202124.toInt() }
     private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6202124.toInt() }
@@ -89,6 +106,35 @@ class OverlayView(
         strokeWidth = 2 * d
     }
 
+    // Soft fade-in of the dimming, and a slowly rotating colour sweep around the selection.
+    private var appear = 0f
+    private var sweep: SweepGradient? = null
+    private val sweepMatrix = Matrix()
+    private var phase = 0f
+    private val fadeAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = 180
+        addUpdateListener {
+            appear = it.animatedValue as Float
+            invalidate()
+        }
+    }
+    private val sweepAnim = ValueAnimator.ofFloat(0f, 360f).apply {
+        duration = 3200
+        repeatCount = ValueAnimator.INFINITE
+        interpolator = LinearInterpolator()
+        addUpdateListener {
+            phase = it.animatedValue as Float
+            if (hasPath) invalidate()
+        }
+    }
+
+    private fun rotateSweep(angle: Float) {
+        val sg = sweep ?: return
+        sweepMatrix.setRotate(angle)
+        sweepMatrix.postTranslate(bounds.centerX(), bounds.centerY())
+        sg.setLocalMatrix(sweepMatrix)
+    }
+
     init {
         isFocusable = true
         isFocusableInTouchMode = true
@@ -97,16 +143,28 @@ class OverlayView(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         requestFocus()
+        fadeAnim.start()
+        sweepAnim.start()
+    }
+
+    override fun onDetachedFromWindow() {
+        fadeAnim.cancel()
+        sweepAnim.cancel()
+        super.onDetachedFromWindow()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        val shader = LinearGradient(
-            0f, 0f, w.toFloat(), h.toFloat(),
-            intArrayOf(0xFF4285F4.toInt(), 0xFFEA4335.toInt(), 0xFFFBBC05.toInt(), 0xFF34A853.toInt()),
-            null, Shader.TileMode.CLAMP
+        val sg = SweepGradient(
+            0f, 0f,
+            intArrayOf(
+                0xFF4285F4.toInt(), 0xFFEA4335.toInt(), 0xFFFBBC05.toInt(),
+                0xFF34A853.toInt(), 0xFF4285F4.toInt()
+            ),
+            null
         )
-        line.shader = shader
-        glow.shader = shader
+        sweep = sg
+        line.shader = sg
+        glow.shader = sg
     }
 
     private fun hintY() = 72 * d
@@ -134,20 +192,34 @@ class OverlayView(
         // Dim everything except the area inside the selection.
         canvas.save()
         if (hasPath) canvas.clipOutPath(path)
+        dimPaint.alpha = (0x88 * appear).toInt()
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
         canvas.restore()
 
         if (hasPath) {
+            if (selected) canvas.drawPath(path, tintPaint) // gentle highlight inside the selection
+            rotateSweep(phase)
             canvas.drawPath(path, glow)
             canvas.drawPath(path, line)
         }
 
-        // Corner handles (rectangle only)
+        // Corner brackets (rectangle only), Lens style; the whole corner area is a resize handle
         if (selected && rectMode) {
-            for (c in corners()) {
-                canvas.drawCircle(c[0], c[1], 9 * d, handleFill)
-                canvas.drawCircle(c[0], c[1], 9 * d, handleEdge)
-            }
+            val len = minOf(24 * d, bounds.width() / 3, bounds.height() / 3)
+            bracketPath.reset()
+            bracketPath.moveTo(bounds.left, bounds.top + len)
+            bracketPath.lineTo(bounds.left, bounds.top)
+            bracketPath.lineTo(bounds.left + len, bounds.top)
+            bracketPath.moveTo(bounds.right - len, bounds.top)
+            bracketPath.lineTo(bounds.right, bounds.top)
+            bracketPath.lineTo(bounds.right, bounds.top + len)
+            bracketPath.moveTo(bounds.left, bounds.bottom - len)
+            bracketPath.lineTo(bounds.left, bounds.bottom)
+            bracketPath.lineTo(bounds.left + len, bounds.bottom)
+            bracketPath.moveTo(bounds.right - len, bounds.bottom)
+            bracketPath.lineTo(bounds.right, bounds.bottom)
+            bracketPath.lineTo(bounds.right, bounds.bottom - len)
+            canvas.drawPath(bracketPath, bracketPaint)
         }
 
         // Hint pill
@@ -185,9 +257,11 @@ class OverlayView(
             val t = barTop()
             canvas.drawRoundRect(l, t, l + barW(), t + barH(), barH() / 2, barH() / 2, barPaint)
             val slot = barW() / 3
+            val inset = 5 * d
+            canvas.drawRoundRect(l + inset, t + inset, l + slot - inset, t + barH() - inset, barH() / 2, barH() / 2, primaryPaint)
             for (i in 0..2) {
                 canvas.drawText(LABELS[i], l + slot * i + slot / 2, t + barH() / 2 + textPaint.textSize * 0.35f, textPaint)
-                if (i > 0) canvas.drawLine(l + slot * i, t + 14 * d, l + slot * i, t + barH() - 14 * d, xPaint.apply { alpha = 80 })
+                if (i > 1) canvas.drawLine(l + slot * i, t + 14 * d, l + slot * i, t + barH() - 14 * d, xPaint.apply { alpha = 80 })
             }
             xPaint.alpha = 255
         }
@@ -211,7 +285,7 @@ class OverlayView(
 
     private fun rebuildRect() {
         path.reset()
-        path.addRoundRect(bounds, 8 * d, 8 * d, Path.Direction.CW)
+        path.addRoundRect(bounds, 12 * d, 12 * d, Path.Direction.CW)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -265,6 +339,8 @@ class OverlayView(
                 startY = e.y
                 path.reset()
                 path.moveTo(e.x, e.y)
+                lastX = e.x
+                lastY = e.y
                 bounds.set(e.x, e.y, e.x, e.y)
                 hasPath = true
             }
@@ -307,13 +383,18 @@ class OverlayView(
                         if (rectMode) {
                             bounds.set(minOf(startX, e.x), minOf(startY, e.y), maxOf(startX, e.x), maxOf(startY, e.y))
                             rebuildRect()
-                        } else add(e.x, e.y)
+                        } else {
+                            add(e.x, e.y)
+                            path.lineTo(e.x, e.y)
+                            path.close() // close the loop so the outline and the lit area are complete
+                        }
                         // Too small: treat as an accidental tap and let the user try again.
                         if (bounds.width() < 36 * d || bounds.height() < 36 * d) {
                             path.reset()
                             hasPath = false
                         } else {
                             selected = true
+                            performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                         }
                     }
                     Drag.BAR -> {
@@ -337,8 +418,11 @@ class OverlayView(
         return true
     }
 
+    // Smooth the stroke: curve through the midpoints between samples instead of straight segments.
     private fun add(x: Float, y: Float) {
-        path.lineTo(x, y)
+        path.quadTo(lastX, lastY, (lastX + x) / 2f, (lastY + y) / 2f)
+        lastX = x
+        lastY = y
         bounds.union(x, y)
     }
 
