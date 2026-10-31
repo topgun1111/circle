@@ -52,6 +52,7 @@ class CircleService : AccessibilityService() {
     private var currentPkg: String? = null
     private var hiddenApps: Set<String> = emptySet()
     private var lastTrigger = 0L
+    private var backTap: BackTapDetector? = null
 
     override fun onServiceConnected() {
         instance = this
@@ -63,6 +64,15 @@ class CircleService : AccessibilityService() {
             toast("Circle to Search: startup error, see Settings > Diagnostics")
         }
         refreshKeepAlive()
+        applyBackTap()
+    }
+
+    /** Starts/stops double-tap-on-back detection and applies sensitivity. Safe to call any time. */
+    fun applyBackTap() {
+        if (!Prefs.backTap(this)) { backTap?.stop(); backTap = null; return }
+        val d = backTap ?: BackTapDetector(this) { trigger(150) }.also { backTap = it }
+        d.sensitivity = Prefs.backTapLevel(this)
+        d.start()
     }
 
     // ---- Keep-alive notification ------------------------------------------
@@ -147,6 +157,7 @@ class CircleService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
+        backTap?.stop(); backTap = null
         stopKeepAlive()
         hideFloating()
         removeOverlay()

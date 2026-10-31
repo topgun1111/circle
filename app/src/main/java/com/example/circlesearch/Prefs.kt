@@ -37,6 +37,11 @@ object Prefs {
     fun floatY(c: Context) = p(c).getInt("float_y", -1)
     fun savePos(c: Context, x: Int, y: Int) = p(c).edit().putInt("float_x", x).putInt("float_y", y).apply()
 
+    fun backTap(c: Context) = p(c).getBoolean("back_tap", false)
+    fun setBackTap(c: Context, v: Boolean) = p(c).edit().putBoolean("back_tap", v).apply()
+    fun backTapLevel(c: Context) = p(c).getInt("back_tap_level", 5)
+    fun setBackTapLevel(c: Context, v: Int) = p(c).edit().putInt("back_tap_level", v).apply()
+
     fun rectMode(c: Context) = p(c).getBoolean("rect_mode", false)
     fun setRectMode(c: Context, v: Boolean) = p(c).edit().putBoolean("rect_mode", v).apply()
 

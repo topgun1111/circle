@@ -185,6 +185,34 @@ class MainActivity : Activity() {
             )
         )
 
+        // Double tap on the back
+        root.addView(label("Double tap on back of phone", 17f, true))
+        root.addView(CheckBox(this).apply {
+            text = "Trigger Circle to Search by double-tapping the back"
+            isChecked = Prefs.backTap(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setBackTap(this@MainActivity, on)
+                CircleService.instance?.applyBackTap()
+            }
+        })
+        val tapLabel = label("Sensitivity: ${Prefs.backTapLevel(this)} / 10")
+        root.addView(tapLabel)
+        root.addView(SeekBar(this).apply {
+            max = 9 // 1..10
+            progress = Prefs.backTapLevel(this@MainActivity) - 1
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
+                    tapLabel.text = "Sensitivity: ${p + 1} / 10"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {
+                    Prefs.setBackTapLevel(this@MainActivity, (sb?.progress ?: 4) + 1)
+                    CircleService.instance?.applyBackTap()
+                }
+            })
+        })
+        root.addView(label("Tap twice, quickly, near the middle of the back. Works with the screen on; raise sensitivity if it misses, lower it if it fires by accident. Keep the keep-alive notification on.", 13f))
+
         // Floating button
         root.addView(label("5. Floating button", 17f, true))
         floatBox = CheckBox(this).apply {
