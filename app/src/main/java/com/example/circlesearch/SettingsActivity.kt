@@ -20,7 +20,6 @@ class SettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val ui = Ui(this)
-        ui.style(this)
         setContentView(with(ui) {
             page {
                 add(pageTitle("Settings"), 4)
@@ -62,6 +61,7 @@ class SettingsActivity : Activity() {
                 }
             }
         })
+        ui.style(this)
     }
 
     override fun onResume() {

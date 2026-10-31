@@ -173,14 +173,15 @@ class Ui(private val c: Context) {
         }
     }
 
+    /** Call after setContentView: the insets controller does not exist before that. */
     fun style(a: Activity) {
-        a.window.statusBarColor = bg
-        a.window.navigationBarColor = bg
-        a.window.insetsController?.setSystemBarsAppearance(
-            if (dark) 0 else android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
-            android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+        try {
+            a.window.statusBarColor = bg
+            a.window.navigationBarColor = bg
+            val m = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
                 android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-        )
+            a.window.decorView.windowInsetsController?.setSystemBarsAppearance(if (dark) 0 else m, m)
+        } catch (_: Throwable) {
+        }
     }
 }

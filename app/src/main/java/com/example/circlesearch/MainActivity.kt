@@ -39,9 +39,26 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ui = Ui(this)
-        ui.style(this)
+        try {
+            setContentView(buildUi())
+            built = true
+            ui.style(this)
+        } catch (e: Throwable) {
+            // Never close instantly: show what went wrong so it can be fixed.
+            Diag.save(this, "MainActivity build failed", e)
+            setContentView(android.widget.ScrollView(this).apply {
+                addView(TextView(this@MainActivity).apply {
+                    text = "UI failed to build:\n\n" + android.util.Log.getStackTraceString(e)
+                    setTextIsSelectable(true); textSize = 11f; setPadding(32, 64, 32, 32)
+                })
+            })
+        }
+    }
 
-        setContentView(with(ui) {
+    private var built = false
+
+    private fun buildUi(): View {
+        return with(ui) {
             page {
                 add(pageTitle("Circle to Search"), 4)
                 add(hint("Circle anything on screen and search it."), 2)
@@ -206,11 +223,12 @@ class MainActivity : Activity() {
                         button("Remove") { runRoot("Removing…") { KeepAlive.removeWatchdog() } }, top = 8)
                 }
             }
-        })
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        if (!built) return
         CircleService.onKeyLearned = { code, scan ->
             runOnUiThread {
                 refresh()

@@ -79,10 +79,14 @@ class CircleService : AccessibilityService() {
 
     /** Starts/stops double-tap-on-back detection and applies sensitivity. Safe to call any time. */
     fun applyBackTap() {
-        if (!Prefs.backTap(this)) { backTap?.stop(); backTap = null; return }
-        val d = backTap ?: BackTapDetector(this) { trigger(150) }.also { backTap = it }
-        d.sensitivity = Prefs.backTapLevel(this)
-        d.start()
+        try {
+            if (!Prefs.backTap(this)) { backTap?.stop(); backTap = null; return }
+            val d = backTap ?: BackTapDetector(this) { trigger(150) }.also { backTap = it }
+            d.sensitivity = Prefs.backTapLevel(this)
+            d.start()
+        } catch (e: Throwable) {
+            Diag.save(this, "Back tap failed to start", e)
+        }
     }
 
     // ---- Keep-alive notification ------------------------------------------
