@@ -1,20 +1,17 @@
 package com.example.circlesearch
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.AccessibilityServiceInfo
-import android.accessibilityservice.GestureDescription
-import android.accessibilityservice.TouchInteractionController
 import android.content.ClipData
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Path
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Display
+import android.view.Gravity
+import android.view.View
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
@@ -29,6 +26,10 @@ class CircleService : AccessibilityService() {
         var instance: CircleService? = null
 
         /** Set by the setup screen while it is open, to show which key was learned. */
+        /** Called when the bubble is closed from its own X, so the setup screen can untick it. */
+        @Volatile
+        var onFloatingClosed: (() -> Unit)? = null
+
         @Volatile
         var onKeyLearned: ((keyCode: Int, scanCode: Int) -> Unit)? = null
     }
@@ -40,7 +41,7 @@ class CircleService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
-        applyTouchGesture()
+        applyFloating()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -49,7 +50,7 @@ class CircleService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
-        disableTouchGesture()
+        hideFloating()
         removeOverlay()
         return super.onUnbind(intent)
     }
@@ -80,127 +81,6 @@ class CircleService : AccessibilityService() {
         return true // swallow both DOWN and UP so the button's default action does not also fire
     }
 
-    // ---- Four-finger touch gesture ------------------------------------------
-    //
-    // Needs touch-exploration mode so the system hands us the raw touch stream.
-    // Every new touch waits ~90 ms to see whether four fingers land; if not, the
-    // touch is passed through to the app untouched (requestDelegating). Touches
-    // that end inside that window are replayed with dispatchGesture.
-
-    private var touchController: TouchInteractionController? = null
-    private var fourFired = false
-    private var touchDecided = false
-    private var maxPointers = 0
-    private var downUptime = 0L
-    private val touchPath = Path()
-    private val decideRunnable = Runnable { delegateTouch() }
-
-    private val touchCallback = object : TouchInteractionController.Callback {
-        override fun onMotionEvent(event: MotionEvent) {
-            try {
-                handleTouch(event)
-            } catch (e: Exception) {
-                failTouch(e)
-            }
-        }
-
-        override fun onStateChanged(state: Int) {}
-    }
-
-    fun applyTouchGesture() {
-        disableTouchGesture()
-        if (!Prefs.fourFinger(this)) return
-        val info = serviceInfo ?: return
-        info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
-        serviceInfo = info
-        // Give the system a moment to apply the new flag before we register.
-        main.postDelayed({ registerTouch() }, 400)
-    }
-
-    private fun registerTouch() {
-        if (!Prefs.fourFinger(this)) return
-        try {
-            val c = getTouchInteractionController(Display.DEFAULT_DISPLAY)
-            c.registerCallback(mainExecutor, touchCallback)
-            touchController = c
-        } catch (e: Exception) {
-            failTouch(e)
-        }
-    }
-
-    private fun disableTouchGesture() {
-        main.removeCallbacks(decideRunnable)
-        touchController?.let {
-            try {
-                it.unregisterCallback(touchCallback)
-            } catch (_: Exception) {
-            }
-        }
-        touchController = null
-        val info = serviceInfo ?: return
-        if (info.flags and AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE != 0) {
-            info.flags = info.flags and AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE.inv()
-            serviceInfo = info
-        }
-    }
-
-    private fun failTouch(e: Exception) {
-        toast("Four-finger gesture switched off: ${e.message}")
-        Prefs.setFourFinger(this, false)
-        disableTouchGesture()
-    }
-
-    private fun handleTouch(e: MotionEvent) {
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                fourFired = false
-                touchDecided = false
-                maxPointers = 1
-                downUptime = SystemClock.uptimeMillis()
-                touchPath.reset()
-                touchPath.moveTo(e.x, e.y)
-                // While our own overlay is up, never delay touches.
-                if (overlay != null) delegateTouch() else main.postDelayed(decideRunnable, 90)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (!touchDecided && !fourFired && e.pointerCount == 1) touchPath.lineTo(e.x, e.y)
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                maxPointers = maxOf(maxPointers, e.pointerCount)
-                if (!touchDecided && !fourFired && e.pointerCount >= 4) {
-                    fourFired = true
-                    main.removeCallbacks(decideRunnable)
-                    trigger(250)
-                }
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                main.removeCallbacks(decideRunnable)
-                if (e.actionMasked == MotionEvent.ACTION_UP && !touchDecided && !fourFired) replayGesture()
-            }
-        }
-    }
-
-    private fun delegateTouch() {
-        touchDecided = true
-        val c = touchController ?: return
-        try {
-            if (c.state == TouchInteractionController.STATE_TOUCH_INTERACTING) c.requestDelegating()
-        } catch (e: Exception) {
-            failTouch(e)
-        }
-    }
-
-    /** A touch that ended before we decided (tap or quick flick): re-inject it for the app. */
-    private fun replayGesture() {
-        if (maxPointers != 1) return
-        val duration = (SystemClock.uptimeMillis() - downUptime).coerceIn(1L, 200L)
-        try {
-            val stroke = GestureDescription.StrokeDescription(Path(touchPath), 0, duration)
-            dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
-        } catch (_: Exception) {
-        }
-    }
-
     // ---- Capture ----------------------------------------------------------
 
     fun trigger(delayMs: Long = 150) {
@@ -212,24 +92,34 @@ class CircleService : AccessibilityService() {
             removeOverlay()
             return
         }
+        floating?.visibility = View.INVISIBLE // hide before the screenshot is taken
         main.postDelayed({ capture() }, delayMs)
     }
 
     private fun capture() {
+        floating?.visibility = View.INVISIBLE // keep it out of the screenshot
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
-                val buffer = result.hardwareBuffer
-                val bitmap = try {
-                    Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
-                        ?.copy(Bitmap.Config.ARGB_8888, false)
-                } finally {
-                    buffer.close()
+                // Copy the (large) bitmap off the main thread.
+                io.execute {
+                    val buffer = result.hardwareBuffer
+                    val bitmap = try {
+                        Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                            ?.copy(Bitmap.Config.ARGB_8888, false)
+                    } catch (_: Exception) {
+                        null
+                    } finally {
+                        buffer.close()
+                    }
+                    main.post {
+                        if (bitmap != null) showOverlay(bitmap) else { toast("Screenshot came back empty"); restoreFloating() }
+                    }
                 }
-                if (bitmap != null) showOverlay(bitmap) else toast("Screenshot came back empty")
             }
 
             override fun onFailure(errorCode: Int) {
                 toast("Could not capture the screen (error $errorCode). Protected apps block screenshots.")
+                restoreFloating()
             }
         })
     }
@@ -238,6 +128,7 @@ class CircleService : AccessibilityService() {
 
     private fun showOverlay(shot: Bitmap) {
         removeOverlay()
+        floating?.visibility = View.INVISIBLE
         val view = OverlayView(
             context = this,
             shot = shot,
@@ -266,6 +157,65 @@ class CircleService : AccessibilityService() {
             (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(v)
         } catch (_: Exception) {
         }
+        restoreFloating()
+    }
+
+    // ---- Floating button --------------------------------------------------
+
+    private var floating: FloatingButton? = null
+
+    fun applyFloating() {
+        if (Prefs.floating(this)) showFloating() else hideFloating()
+    }
+
+    private fun showFloating() {
+        if (floating != null) return
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val d = resources.displayMetrics.density
+        val size = (48 * d).toInt()
+        val b = wm.currentWindowMetrics.bounds
+        val lp = WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = if (Prefs.floatX(this@CircleService) >= 0) Prefs.floatX(this@CircleService) else b.width() - size - (8 * d).toInt()
+            y = if (Prefs.floatY(this@CircleService) >= 0) Prefs.floatY(this@CircleService) else b.height() / 2
+        }
+        val v = FloatingButton(
+            context = this,
+            wm = wm,
+            lp = lp,
+            onTap = { trigger(150) },
+            onClose = {
+                Prefs.setFloating(this, false)
+                hideFloating()
+                onFloatingClosed?.invoke()
+            }
+        )
+        try {
+            wm.addView(v, lp)
+            floating = v
+        } catch (e: Exception) {
+            toast("Could not show the floating button: ${e.message}")
+        }
+    }
+
+    private fun hideFloating() {
+        val v = floating ?: return
+        floating = null
+        try {
+            (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(v)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun restoreFloating() {
+        floating?.visibility = View.VISIBLE
     }
 
     // ---- Search hand-off --------------------------------------------------

@@ -22,6 +22,8 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var keyInfo: TextView
+    private lateinit var floatBox: CheckBox
+    private var syncing = false
     private val h = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -127,20 +129,37 @@ class MainActivity : Activity() {
         root.addView(group)
 
         // Step 4
-        root.addView(label("4. Four-finger gesture (experimental)", 17f, true))
-        root.addView(CheckBox(this).apply {
-            text = "Touch the screen with four fingers to start"
-            isChecked = Prefs.fourFinger(this@MainActivity)
-            setOnCheckedChangeListener { _, on ->
-                Prefs.setFourFinger(this@MainActivity, on)
-                CircleService.instance?.applyTouchGesture()
-            }
-        })
+        root.addView(label("4. Quick Settings button", 17f, true))
+        root.addView(button("Add button to Quick Settings") { addTile() })
         root.addView(
             label(
-                "Put four fingers down at the same time, anywhere. Android only allows this through touch-exploration mode, " +
-                    "so while it is on: every touch is delayed by about 0.1 s, and some apps (banking, a few games) may behave differently " +
-                    "because they can see touch exploration is on. If touch ever feels broken, untick this or switch the service off in accessibility settings.",
+                "Shows a system prompt to add “Circle to Search” to your Quick Settings panel. " +
+                    "If it does not appear, swipe down, tap the pencil icon and drag the tile in.",
+                13f
+            )
+        )
+
+        // Floating button
+        root.addView(label("5. Floating button", 17f, true))
+        floatBox = CheckBox(this).apply {
+            text = "Show a floating button on screen"
+            isChecked = Prefs.floating(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                if (syncing) return@setOnCheckedChangeListener
+                if (on && CircleService.instance == null) {
+                    toast("Turn on the service first")
+                    isChecked = false
+                } else {
+                    Prefs.setFloating(this@MainActivity, on)
+                    CircleService.instance?.applyFloating()
+                }
+            }
+        }
+        root.addView(floatBox)
+        root.addView(
+            label(
+                "Tap the bubble to search, drag it anywhere. To close it: press and hold until it turns into a red X, " +
+                    "then tap the X (or untick this box). Switch it back on here any time.",
                 13f
             )
         )
@@ -168,15 +187,20 @@ class MainActivity : Activity() {
                 toast("Saved ${KeyEvent.keyCodeToString(code)} (scan $scan)")
             }
         }
+        CircleService.onFloatingClosed = { runOnUiThread { refresh() } }
         refresh()
     }
 
     override fun onPause() {
         CircleService.onKeyLearned = null
+        CircleService.onFloatingClosed = null
         super.onPause()
     }
 
     private fun refresh() {
+        syncing = true
+        floatBox.isChecked = Prefs.floating(this)
+        syncing = false
         status.text = if (serviceOn()) "✓ Service is on" else "✗ Service is off"
         keyInfo.text = when {
             Prefs.isLearning(this) -> "Press your side button now…"
@@ -192,6 +216,19 @@ class MainActivity : Activity() {
             contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ) ?: return false
         return enabled.split(':').any { it.contains(packageName) && it.contains("CircleService") }
+    }
+
+    private fun addTile() {
+        try {
+            getSystemService(android.app.StatusBarManager::class.java).requestAddTileService(
+                android.content.ComponentName(this, CircleTileService::class.java),
+                getString(R.string.trigger_label),
+                android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_circle),
+                mainExecutor
+            ) { }
+        } catch (_: Exception) {
+            toast("Swipe down, tap the pencil icon and drag “Circle to Search” in")
+        }
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()

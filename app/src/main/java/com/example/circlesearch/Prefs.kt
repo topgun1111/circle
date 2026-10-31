@@ -26,6 +26,10 @@ object Prefs {
     fun useShareSheet(c: Context) = p(c).getBoolean("share_sheet", false)
     fun setUseShareSheet(c: Context, v: Boolean) = p(c).edit().putBoolean("share_sheet", v).apply()
 
-    fun fourFinger(c: Context) = p(c).getBoolean("four_finger", false)
-    fun setFourFinger(c: Context, v: Boolean) = p(c).edit().putBoolean("four_finger", v).apply()
+
+    fun floating(c: Context) = p(c).getBoolean("floating", false)
+    fun setFloating(c: Context, v: Boolean) = p(c).edit().putBoolean("floating", v).apply()
+    fun floatX(c: Context) = p(c).getInt("float_x", -1)
+    fun floatY(c: Context) = p(c).getInt("float_y", -1)
+    fun savePos(c: Context, x: Int, y: Int) = p(c).edit().putInt("float_x", x).putInt("float_y", y).apply()
 }
