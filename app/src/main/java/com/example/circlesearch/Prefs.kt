@@ -23,6 +23,10 @@ object Prefs {
 
     fun isLearning(c: Context) = System.currentTimeMillis() < p(c).getLong("learn_until", 0)
 
+    /** Small ongoing notification that makes Android treat the app as a foreground service. */
+    fun keepAliveNotif(c: Context) = p(c).getBoolean("keep_notif", true)
+    fun setKeepAliveNotif(c: Context, v: Boolean) = p(c).edit().putBoolean("keep_notif", v).apply()
+
     fun useShareSheet(c: Context) = p(c).getBoolean("share_sheet", false)
     fun setUseShareSheet(c: Context, v: Boolean) = p(c).edit().putBoolean("share_sheet", v).apply()
 

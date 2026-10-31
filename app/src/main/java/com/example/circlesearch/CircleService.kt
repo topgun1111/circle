@@ -1,7 +1,14 @@
 package com.example.circlesearch
 
 import android.accessibilityservice.AccessibilityService
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ClipData
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.util.Log
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
@@ -55,6 +62,57 @@ class CircleService : AccessibilityService() {
             Diag.save(this, "onServiceConnected failed", e)
             toast("Circle to Search: startup error, see Settings > Diagnostics")
         }
+        refreshKeepAlive()
+    }
+
+    // ---- Keep-alive notification ------------------------------------------
+    // HyperOS kills background processes; an ongoing foreground-service notification makes
+    // Android (and the security app) treat this process as important.
+
+    private var inForeground = false
+
+    /** Starts or stops the foreground notification according to the setting. Safe to call any time. */
+    fun refreshKeepAlive() {
+        if (Prefs.keepAliveNotif(this)) startKeepAlive() else stopKeepAlive()
+    }
+
+    private fun startKeepAlive() {
+        try {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(
+                NotificationChannel("keepalive", "Running in background", NotificationManager.IMPORTANCE_LOW)
+                    .apply { setShowBadge(false) }
+            )
+            val open = PendingIntent.getActivity(
+                this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+            )
+            val n = Notification.Builder(this, "keepalive")
+                .setSmallIcon(R.drawable.ic_circle)
+                .setContentTitle("Circle to Search is ready")
+                .setContentText("Keeps the service alive. Tap to open settings.")
+                .setContentIntent(open)
+                .setOngoing(true)
+                .build()
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(1, n)
+            }
+            inForeground = true
+        } catch (e: Exception) {
+            // Not allowed right now (e.g. started from the background). It is retried whenever the
+            // setup screen is opened.
+            Log.w("CircleService", "startForeground failed", e)
+        }
+    }
+
+    private fun stopKeepAlive() {
+        if (!inForeground) return
+        inForeground = false
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Exception) {
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -89,6 +147,7 @@ class CircleService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
+        stopKeepAlive()
         hideFloating()
         removeOverlay()
         return super.onUnbind(intent)

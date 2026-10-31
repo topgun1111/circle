@@ -13,6 +13,8 @@ class App : Application() {
             Diag.save(this, "Crash in thread \"${thread.name}\"", e)
             previous?.uncaughtException(thread, e)
         }
+        // Remember why the previous process died (killed by the system vs. a real crash).
+        KeepAlive.recordExitReasons(this)
     }
 }
 

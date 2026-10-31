@@ -14,6 +14,7 @@ import android.widget.Toast
 class SettingsActivity : Activity() {
 
     private lateinit var crashInfo: TextView
+    private lateinit var exitInfo: TextView
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,6 +66,10 @@ class SettingsActivity : Activity() {
         )
 
         root.addView(label("Diagnostics", 17f, true))
+        root.addView(label("Why the app process ended (newest first). SIGNALED / OTHER while in the background means HyperOS killed it; CRASH means a real bug.", 13f))
+        exitInfo = label("", 12f)
+        exitInfo.setTextIsSelectable(true)
+        root.addView(exitInfo)
         crashInfo = label("", 12f)
         crashInfo.setTextIsSelectable(true)
         root.addView(crashInfo)
@@ -100,6 +105,7 @@ class SettingsActivity : Activity() {
     }
 
     private fun showCrash() {
+        exitInfo.text = KeepAlive.readExitReasons(this) ?: "No process exits recorded yet."
         val t = Diag.read(this)
         crashInfo.text = if (t == null) "No error recorded." else t.take(1500)
     }

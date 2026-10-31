@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var floatBox: CheckBox
     private var syncing = false
     private lateinit var hiddenInfo: TextView
+    private lateinit var rootInfo: TextView
     private val h = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,24 +72,53 @@ class MainActivity : Activity() {
             )
         )
 
-        root.addView(button("Battery settings (keep it running)") {
-            try {
-                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            } catch (_: Exception) {
-                startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                        .setData(android.net.Uri.parse("package:$packageName"))
-                )
+        // Keep alive (HyperOS / MIUI kills background apps; Android then marks the service "crashed")
+        root.addView(label("Keep it running (HyperOS)", 17f, true))
+        root.addView(
+            label(
+                "HyperOS kills background apps. When that happens Android shows the service as " +
+                    "“not working” and never restarts it by itself. Do these once:",
+                13f
+            )
+        )
+        root.addView(button("1) Autostart: switch ON for this app") { KeepAlive.openAutostart(this) })
+        root.addView(button("2) Battery saver: choose “No restrictions”") { KeepAlive.openBatterySaver(this) })
+        root.addView(label("3) Open the recents screen, long-press this app's card and tap the lock icon.", 13f))
+        root.addView(CheckBox(this).apply {
+            text = "Show a small “running” notification (recommended)"
+            isChecked = Prefs.keepAliveNotif(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setKeepAliveNotif(this@MainActivity, on)
+                if (on && this@MainActivity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    this@MainActivity.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7)
+                }
+                CircleService.instance?.refreshKeepAlive()
             }
         })
         root.addView(
             label(
-                "OriginOS closes background apps aggressively. Allow Circle to Search to auto-start and run in the " +
-                    "background, set its battery use to unrestricted, and lock it in the recents screen. " +
-                    "Otherwise the button can stop working after a while.",
+                "Rooted? The watchdog restarts the service within seconds whenever it is killed, " +
+                    "and again after every reboot (needs Magisk, KernelSU or APatch).",
                 13f
             )
         )
+        rootInfo = label("", 12f)
+        rootInfo.setTextIsSelectable(true)
+        root.addView(rootInfo)
+        root.addView(button("Install root watchdog") {
+            runRoot("Installing…") { KeepAlive.installWatchdog(this) }
+        })
+        root.addView(button("Restart service now (root)") {
+            runRoot("Restarting…") { KeepAlive.reviveNow(this) }
+        })
+        root.addView(button("Watchdog status / log") {
+            runRoot("Reading…") { KeepAlive.Result(true, KeepAlive.watchdogLog()) }
+        })
+        root.addView(button("Remove root watchdog") {
+            runRoot("Removing…") { KeepAlive.removeWatchdog() }
+        })
 
         // Step 2
         root.addView(label("2. Connect your side button", 17f, true))
@@ -110,7 +140,7 @@ class MainActivity : Activity() {
         root.addView(
             label(
                 "Tap “Learn”, then press the button within 20 seconds. If nothing is captured, the button is not " +
-                    "sending a normal key event. In that case set the button's action in vivo's settings to open an app or shortcut and " +
+                    "sending a normal key event. In that case set the button's action in your phone's settings to open an app or shortcut and " +
                     "choose “Circle to Search” (the invisible launcher entry), or use the Quick Settings tile.",
                 13f
             )
@@ -253,6 +283,7 @@ class MainActivity : Activity() {
             }
         }
         CircleService.onFloatingClosed = { runOnUiThread { refresh() } }
+        CircleService.instance?.refreshKeepAlive()
         refresh()
     }
 
@@ -268,7 +299,13 @@ class MainActivity : Activity() {
         syncing = false
         val n = Prefs.hiddenApps(this).size
         hiddenInfo.text = if (n == 0) "Button shows in every app" else "Button is hidden in $n app(s)"
-        status.text = if (serviceOn()) "✓ Service is on" else "✗ Service is off"
+        status.text = when {
+            !serviceOn() -> "✗ Service is off"
+            CircleService.instance == null ->
+                "⚠ Service is enabled but not running (killed by the system). " +
+                    "Use “Restart service now (root)”, or switch it off and on in accessibility settings."
+            else -> "✓ Service is on"
+        }
         keyInfo.text = when {
             Prefs.isLearning(this) -> "Press your side button now…"
             Prefs.hasKey(this) ->
@@ -278,11 +315,18 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun serviceOn(): Boolean {
-        val enabled = Settings.Secure.getString(
-            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabled.split(':').any { it.contains(packageName) && it.contains("CircleService") }
+    private fun serviceOn(): Boolean = KeepAlive.enabledInSettings(this)
+
+    /** Runs a root action off the main thread and shows its result under the buttons. */
+    private fun runRoot(busy: String, action: () -> KeepAlive.Result) {
+        rootInfo.text = busy
+        Thread {
+            val r = try { action() } catch (e: Exception) { KeepAlive.Result(false, e.toString()) }
+            runOnUiThread {
+                rootInfo.text = (if (r.ok) "✓ " else "✗ ") + r.output
+                refresh()
+            }
+        }.start()
     }
 
     private fun pickHiddenApps() {
