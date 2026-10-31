@@ -39,20 +39,23 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}
 
-      - name: Name the APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk "circle-search-$VERSION.apk"
+      - name: Name the APKs
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk "circle-search-$VERSION.apk"
+          # Fixed name, so releases/latest/download/circle-search.apk always points at the newest build.
+          cp app/build/outputs/apk/debug/app-debug.apk circle-search.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: circle-search-${{ env.VERSION }}
           path: circle-search-${{ env.VERSION }}.apk
 
-      # The in-app updater reads the latest release and downloads the attached APK.
+      # The in-app update buttons open this release / its fixed-name APK link in the browser.
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "v$VERSION" "circle-search-$VERSION.apk" \
+          gh release create "v$VERSION" "circle-search-$VERSION.apk" circle-search.apk \
             --target "${{ github.sha }}" \
             --title "Circle to Search $VERSION" \
             --generate-notes

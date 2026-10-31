@@ -5,27 +5,16 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
-import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import kotlin.concurrent.thread
 
 class SettingsActivity : Activity() {
 
-    private lateinit var status: TextView
-    private lateinit var notes: TextView
-    private lateinit var checkBtn: Button
-    private lateinit var installBtn: Button
-    private lateinit var progress: ProgressBar
     private lateinit var crashInfo: TextView
 
-    private var latest: Updater.Release? = null
-    private var busy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,32 +40,29 @@ class SettingsActivity : Activity() {
         root.addView(label("Updates come from github.com/${Updater.OWNER}/${Updater.REPO}", 13f))
 
         root.addView(label("Updates", 17f, true))
-        status = label("Tap “Check for updates” to look for a newer version.")
-        root.addView(status)
-
-        checkBtn = Button(this).apply {
+        root.addView(
+            label(
+                "Opens GitHub in your browser. Compare the number at the end of the version " +
+                    "(you have build ${Updater.currentBuild(this)}); a higher number is newer.",
+                13f
+            )
+        )
+        root.addView(Button(this).apply {
             text = "Check for updates"
             isAllCaps = false
-            setOnClickListener { check() }
-        }
-        root.addView(checkBtn)
-
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            visibility = View.GONE
-            max = 100
-        }
-        root.addView(progress)
-
-        installBtn = Button(this).apply {
-            text = "Download and install"
+            setOnClickListener { open(Updater.RELEASES_PAGE) }
+        })
+        root.addView(Button(this).apply {
+            text = "Download latest APK"
             isAllCaps = false
-            visibility = View.GONE
-            setOnClickListener { downloadAndInstall() }
-        }
-        root.addView(installBtn)
-
-        notes = label("", 13f)
-        root.addView(notes)
+            setOnClickListener { open(Updater.LATEST_APK) }
+        })
+        root.addView(
+            label(
+                "After the download finishes, tap it in your browser or Files app to install over the current version.",
+                13f
+            )
+        )
 
         root.addView(label("Diagnostics", 17f, true))
         crashInfo = label("", 12f)
@@ -118,77 +104,11 @@ class SettingsActivity : Activity() {
         crashInfo.text = if (t == null) "No error recorded." else t.take(1500)
     }
 
-    private fun ui(block: () -> Unit) = runOnUiThread(block)
-
-    private fun check() {
-        if (busy) return
-        busy = true
-        checkBtn.isEnabled = false
-        installBtn.visibility = View.GONE
-        notes.text = ""
-        status.text = "Checking GitHub…"
-        thread {
-            try {
-                val r = Updater.fetchLatest()
-                ui {
-                    latest = r
-                    if (Updater.isNewer(this, r)) {
-                        val mb = if (r.apkSize > 0) " (%.1f MB)".format(r.apkSize / 1_048_576.0) else ""
-                        status.text = "Update available: ${r.tag}$mb\nYou have ${Updater.currentName(this)}."
-                        installBtn.visibility = View.VISIBLE
-                        notes.text = r.notes.trim().take(600)
-                    } else {
-                        status.text = "You're up to date (${Updater.currentName(this)})."
-                    }
-                }
-            } catch (e: Exception) {
-                ui { status.text = "Could not check: ${e.message ?: e.javaClass.simpleName}" }
-            } finally {
-                ui {
-                    busy = false
-                    checkBtn.isEnabled = true
-                }
-            }
-        }
-    }
-
-    private fun downloadAndInstall() {
-        val r = latest ?: return
-        if (busy) return
-        if (!packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(
-                this,
-                "Allow “Install unknown apps” for Circle to Search, then come back and tap again.",
-                Toast.LENGTH_LONG
-            ).show()
-            startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
-            )
-            return
-        }
-        busy = true
-        checkBtn.isEnabled = false
-        installBtn.isEnabled = false
-        progress.progress = 0
-        progress.visibility = View.VISIBLE
-        status.text = "Downloading ${r.tag}…"
-        thread {
-            try {
-                val file = Updater.download(this, r) { done, total ->
-                    if (total > 0) ui { progress.progress = (done * 100 / total).toInt() }
-                }
-                ui { status.text = "Downloaded. Android will ask you to confirm the update." }
-                Updater.install(this, file)
-            } catch (e: Exception) {
-                ui { status.text = "Update failed: ${e.message ?: e.javaClass.simpleName}" }
-            } finally {
-                ui {
-                    busy = false
-                    checkBtn.isEnabled = true
-                    installBtn.isEnabled = true
-                    progress.visibility = View.GONE
-                }
-            }
+    private fun open(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) {
+            Toast.makeText(this, "No browser found", Toast.LENGTH_SHORT).show()
         }
     }
 }
