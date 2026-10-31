@@ -2,304 +2,211 @@ package com.example.circlesearch
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.KeyEvent
 import android.view.View
-import android.widget.Button
-import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
 
+    private lateinit var ui: Ui
     private lateinit var status: TextView
     private lateinit var keyInfo: TextView
-    private lateinit var floatBox: CheckBox
+    private lateinit var floatBox: Switch
+    private lateinit var floatGroup: View
+    private lateinit var tapGroup: View
+    private lateinit var tapInfo: TextView
     private var syncing = false
     private lateinit var hiddenInfo: TextView
     private lateinit var rootInfo: TextView
     private val h = Handler(Looper.getMainLooper())
 
+    private val poll = object : Runnable {
+        override fun run() {
+            tapInfo.text = CircleService.instance?.backTapStats() ?: "Turn on the service first"
+            h.postDelayed(this, 300)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val d = resources.displayMetrics.density
-        val pad = (20 * d).toInt()
+        ui = Ui(this)
+        ui.style(this)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad * 2, pad, pad)
-        }
+        setContentView(with(ui) {
+            page {
+                add(pageTitle("Circle to Search"), 4)
+                add(hint("Circle anything on screen and search it."), 2)
 
-        fun label(s: String, size: Float = 15f, bold: Boolean = false) = TextView(this).apply {
-            text = s
-            textSize = size
-            if (bold) setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, (10 * d).toInt(), 0, (4 * d).toInt())
-        }
-
-        fun button(s: String, onClick: () -> Unit) = Button(this).apply {
-            text = s
-            isAllCaps = false
-            setOnClickListener { onClick() }
-        }
-
-        root.addView(label("Circle to Search", 26f, true))
-        root.addView(button("Settings and updates (v${Updater.currentName(this)})") {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        })
-
-        // Step 1
-        root.addView(label("1. Turn on the service", 17f, true))
-        status = label("")
-        root.addView(status)
-        root.addView(button("Open accessibility settings") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        })
-        root.addView(
-            label(
-                "Find “Circle to Search” under Downloaded / Installed apps and switch it on. " +
-                    "If the switch is greyed out (sideloaded app): Settings → Apps → Circle to Search → ⋮ → Allow restricted settings, then try again.",
-                13f
-            )
-        )
-
-        // Keep alive (HyperOS / MIUI kills background apps; Android then marks the service "crashed")
-        root.addView(label("Keep it running (HyperOS)", 17f, true))
-        root.addView(
-            label(
-                "HyperOS kills background apps. When that happens Android shows the service as " +
-                    "“not working” and never restarts it by itself. Do these once:",
-                13f
-            )
-        )
-        root.addView(button("1) Autostart: switch ON for this app") { KeepAlive.openAutostart(this) })
-        root.addView(button("2) Battery saver: choose “No restrictions”") { KeepAlive.openBatterySaver(this) })
-        root.addView(label("3) Open the recents screen, long-press this app's card and tap the lock icon.", 13f))
-        root.addView(CheckBox(this).apply {
-            text = "Show a small “running” notification (recommended)"
-            isChecked = Prefs.keepAliveNotif(this@MainActivity)
-            setOnCheckedChangeListener { _, on ->
-                Prefs.setKeepAliveNotif(this@MainActivity, on)
-                if (on && this@MainActivity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    this@MainActivity.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7)
+                // ---- Service status ----
+                card {
+                    status = text("")
+                    add(status, 0)
+                    buttons(button("Accessibility settings", primary = true) {
+                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }, button("Settings & updates") {
+                        startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+                    })
+                    add(hint("Find “Circle to Search” under Installed apps and switch it on. If it is greyed out: " +
+                        "Settings → Apps → Circle to Search → ⋮ → Allow restricted settings."))
                 }
-                CircleService.instance?.refreshKeepAlive()
-            }
-        })
-        root.addView(
-            label(
-                "Rooted? The watchdog restarts the service within seconds whenever it is killed, " +
-                    "and again after every reboot (needs Magisk, KernelSU or APatch).",
-                13f
-            )
-        )
-        rootInfo = label("", 12f)
-        rootInfo.setTextIsSelectable(true)
-        root.addView(rootInfo)
-        root.addView(button("Install root watchdog") {
-            runRoot("Installing…") { KeepAlive.installWatchdog(this) }
-        })
-        root.addView(button("Restart service now (root)") {
-            runRoot("Restarting…") { KeepAlive.reviveNow(this) }
-        })
-        root.addView(button("Watchdog status / log") {
-            runRoot("Reading…") { KeepAlive.Result(true, KeepAlive.watchdogLog()) }
-        })
-        root.addView(button("Remove root watchdog") {
-            runRoot("Removing…") { KeepAlive.removeWatchdog() }
-        })
 
-        // Step 2
-        root.addView(label("2. Connect your side button", 17f, true))
-        keyInfo = label("")
-        root.addView(keyInfo)
-        root.addView(button("Learn side button") {
-            if (!serviceOn()) {
-                toast("Turn on the service first")
-            } else {
-                Prefs.startLearning(this)
-                refresh()
-                h.postDelayed({ refresh() }, 20_500)
-            }
-        })
-        root.addView(button("Forget saved button") {
-            Prefs.clearKey(this)
-            refresh()
-        })
-        root.addView(
-            label(
-                "Tap “Learn”, then press the button within 20 seconds. If nothing is captured, the button is not " +
-                    "sending a normal key event. In that case set the button's action in your phone's settings to open an app or shortcut and " +
-                    "choose “Circle to Search” (the invisible launcher entry), or use the Quick Settings tile.",
-                13f
-            )
-        )
+                // ---- Triggers ----
+                add(heading("Triggers"), 20)
 
-        // Step 3
-        root.addView(label("3. Search with", 17f, true))
-        val group = RadioGroup(this)
-        val rbGoogle = RadioButton(this).apply {
-            text = "Google Lens (falls back to the share sheet)"
-            id = View.generateViewId()
-        }
-        val rbShare = RadioButton(this).apply {
-            text = "Share sheet (pick any app)"
-            id = View.generateViewId()
-        }
-        group.addView(rbGoogle)
-        group.addView(rbShare)
-        group.check(if (Prefs.useShareSheet(this)) rbShare.id else rbGoogle.id)
-        group.setOnCheckedChangeListener { _, id -> Prefs.setUseShareSheet(this, id == rbShare.id) }
-        root.addView(group)
-
-        root.addView(label("Selection style", 15f, true))
-        val shapeGroup = RadioGroup(this)
-        val rbCircle = RadioButton(this).apply { text = "Freehand circle"; id = View.generateViewId() }
-        val rbRect = RadioButton(this).apply { text = "Rectangle (drag a box)"; id = View.generateViewId() }
-        shapeGroup.addView(rbCircle)
-        shapeGroup.addView(rbRect)
-        shapeGroup.check(if (Prefs.rectMode(this)) rbRect.id else rbCircle.id)
-        shapeGroup.setOnCheckedChangeListener { _, id -> Prefs.setRectMode(this, id == rbRect.id) }
-        root.addView(shapeGroup)
-        root.addView(label("You can also switch while selecting: tap the shape icon at the top left of the screenshot.", 13f))
-
-        // Step 4
-        root.addView(label("4. Quick Settings button", 17f, true))
-        root.addView(button("Add button to Quick Settings") { addTile() })
-        root.addView(
-            label(
-                "Shows a system prompt to add “Circle to Search” to your Quick Settings panel. " +
-                    "If it does not appear, swipe down, tap the pencil icon and drag the tile in.",
-                13f
-            )
-        )
-
-        // Double tap on the back
-        root.addView(label("Double tap on back of phone", 17f, true))
-        root.addView(CheckBox(this).apply {
-            text = "Trigger Circle to Search by double-tapping the back"
-            isChecked = Prefs.backTap(this@MainActivity)
-            setOnCheckedChangeListener { _, on ->
-                Prefs.setBackTap(this@MainActivity, on)
-                CircleService.instance?.applyBackTap()
-            }
-        })
-        val tapLabel = label("Sensitivity: ${Prefs.backTapLevel(this)} / 10")
-        root.addView(tapLabel)
-        root.addView(SeekBar(this).apply {
-            max = 9 // 1..10
-            progress = Prefs.backTapLevel(this@MainActivity) - 1
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
-                    tapLabel.text = "Sensitivity: ${p + 1} / 10"
+                card {
+                    add(heading("Side button"), 0)
+                    keyInfo = text("")
+                    add(keyInfo, 4)
+                    buttons(button("Learn button") {
+                        if (!serviceOn()) toast("Turn on the service first") else {
+                            Prefs.startLearning(this@MainActivity)
+                            refresh()
+                            h.postDelayed({ refresh() }, 20_500)
+                        }
+                    }, button("Forget") { Prefs.clearKey(this@MainActivity); refresh() })
+                    add(hint("Tap Learn, then press the button within 20 seconds. If nothing is captured, the button " +
+                        "sends no key event: set its action to open the “Circle to Search” shortcut, or use the tile."))
                 }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {
-                    Prefs.setBackTapLevel(this@MainActivity, (sb?.progress ?: 4) + 1)
-                    CircleService.instance?.applyBackTap()
-                }
-            })
-        })
-        root.addView(label("Tap twice, quickly, near the middle of the back. Works with the screen on; raise sensitivity if it misses, lower it if it fires by accident. Keep the keep-alive notification on.", 13f))
 
-        // Floating button
-        root.addView(label("5. Floating button", 17f, true))
-        floatBox = CheckBox(this).apply {
-            text = "Show a floating button on screen"
-            isChecked = Prefs.floating(this@MainActivity)
-            setOnCheckedChangeListener { _, on ->
-                if (syncing) return@setOnCheckedChangeListener
-                if (on && CircleService.instance == null) {
-                    toast("Turn on the service first")
-                    isChecked = false
-                } else {
-                    Prefs.setFloating(this@MainActivity, on)
-                    CircleService.instance?.applyFloating()
+                card {
+                    val (row, _) = switchRow("Double tap on back", "Tap twice on the back of the phone",
+                        Prefs.backTap(this@MainActivity)) { _, on ->
+                        Prefs.setBackTap(this@MainActivity, on)
+                        CircleService.instance?.applyBackTap()
+                        tapGroup.visibility = if (on) View.VISIBLE else View.GONE
+                    }
+                    addView(row)
+                    tapGroup = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        visibility = if (Prefs.backTap(this@MainActivity)) View.VISIBLE else View.GONE
+                        add(slider("Sensitivity", " / 10", 1, 10, Prefs.backTapLevel(this@MainActivity)) {
+                            Prefs.setBackTapLevel(this@MainActivity, it)
+                            CircleService.instance?.applyBackTap()
+                        }, 12)
+                        tapInfo = mono()
+                        add(tapInfo, 8)
+                        add(hint("Tap near the middle of the back with the screen on. If “last jolt” stays below " +
+                            "“needs”, raise sensitivity. Keep the running notification on."), 8)
+                    }
+                    add(tapGroup, 0)
+                }
+
+                card {
+                    val (row, sw) = switchRow("Floating button", "A draggable bubble on screen",
+                        Prefs.floating(this@MainActivity)) { s, on ->
+                        if (syncing) return@switchRow
+                        if (on && CircleService.instance == null) {
+                            toast("Turn on the service first"); s.isChecked = false
+                        } else {
+                            Prefs.setFloating(this@MainActivity, on)
+                            CircleService.instance?.applyFloating()
+                            floatGroup.visibility = if (on) View.VISIBLE else View.GONE
+                        }
+                    }
+                    floatBox = sw
+                    addView(row)
+                    floatGroup = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        visibility = if (Prefs.floating(this@MainActivity)) View.VISIBLE else View.GONE
+                        fun applyFloat() = CircleService.instance?.refreshFloating()
+                        add(slider("Size", " dp", 36, 72, Prefs.floatSize(this@MainActivity)) {
+                            Prefs.setFloatSize(this@MainActivity, it); applyFloat()
+                        }, 12)
+                        add(slider("Opacity", "%", 30, 100, Prefs.floatOpacity(this@MainActivity)) {
+                            Prefs.setFloatOpacity(this@MainActivity, it); applyFloat()
+                        }, 8)
+                        add(switchRow("Snap to edge", "Fades when idle", Prefs.floatEdge(this@MainActivity)) { _, on ->
+                            Prefs.setFloatEdge(this@MainActivity, on); applyFloat()
+                        }.first, 12)
+                        hiddenInfo = hint("")
+                        add(hiddenInfo, 12)
+                        buttons(button("Hide in apps…") { pickHiddenApps() })
+                        add(hint("Drag to move. Press and hold until it turns into a red X, then tap the X to close it."), 8)
+                    }
+                    add(floatGroup, 0)
+                }
+
+                card {
+                    add(heading("Quick Settings tile"), 0)
+                    add(hint("Adds a “Circle to Search” tile to the swipe-down panel."), 2)
+                    buttons(button("Add tile") { addTile() })
+                }
+
+                // ---- Behaviour ----
+                add(heading("Search"), 20)
+                card {
+                    add(text("Search with", 13.5f), 0)
+                    val group = RadioGroup(this@MainActivity)
+                    val rbGoogle = RadioButton(this@MainActivity).apply {
+                        text = "Google Lens (falls back to share sheet)"; id = View.generateViewId()
+                    }
+                    val rbShare = RadioButton(this@MainActivity).apply {
+                        text = "Share sheet (pick any app)"; id = View.generateViewId()
+                    }
+                    group.addView(rbGoogle); group.addView(rbShare)
+                    group.check(if (Prefs.useShareSheet(this@MainActivity)) rbShare.id else rbGoogle.id)
+                    group.setOnCheckedChangeListener { _, id -> Prefs.setUseShareSheet(this@MainActivity, id == rbShare.id) }
+                    add(group, 4)
+                    divide()
+                    add(text("Selection style", 13.5f), 12)
+                    val shapeGroup = RadioGroup(this@MainActivity)
+                    val rbCircle = RadioButton(this@MainActivity).apply { text = "Freehand circle"; id = View.generateViewId() }
+                    val rbRect = RadioButton(this@MainActivity).apply { text = "Rectangle (drag a box)"; id = View.generateViewId() }
+                    shapeGroup.addView(rbCircle); shapeGroup.addView(rbRect)
+                    shapeGroup.check(if (Prefs.rectMode(this@MainActivity)) rbRect.id else rbCircle.id)
+                    shapeGroup.setOnCheckedChangeListener { _, id -> Prefs.setRectMode(this@MainActivity, id == rbRect.id) }
+                    add(shapeGroup, 4)
+                    add(hint("You can also switch while selecting with the shape icon at the top left."), 4)
+                }
+
+                card {
+                    buttons(button("Test now (1 second delay)", primary = true) {
+                        val s = CircleService.instance
+                        if (s == null) toast("Turn on the service first") else {
+                            moveTaskToBack(true)
+                            h.postDelayed({ s.trigger(300) }, 700)
+                        }
+                    }, top = 0)
+                }
+
+                // ---- Advanced ----
+                add(heading("Advanced"), 20)
+                expandable("Keep it running", "HyperOS kills background apps; do these once") {
+                    add(hint("When that happens Android shows the service as “not working” and does not restart it."), 10)
+                    buttons(button("Autostart ON") { KeepAlive.openAutostart(this@MainActivity) },
+                        button("Battery: no limits") { KeepAlive.openBatterySaver(this@MainActivity) })
+                    add(hint("Also: open recents, long-press this app's card and tap the lock icon."), 10)
+                    divide()
+                    val (row, _) = switchRow("Running notification", "Recommended; also needed for back-tap",
+                        Prefs.keepAliveNotif(this@MainActivity)) { _, on ->
+                        Prefs.setKeepAliveNotif(this@MainActivity, on)
+                        if (on && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7)
+                        CircleService.instance?.refreshKeepAlive()
+                    }
+                    add(row, 14)
+                }
+                expandable("Root watchdog", "Restarts the service after it is killed or after reboot") {
+                    add(hint("Needs Magisk, KernelSU or APatch."), 10)
+                    rootInfo = mono()
+                    add(rootInfo, 6)
+                    buttons(button("Install") { runRoot("Installing…") { KeepAlive.installWatchdog(this@MainActivity) } },
+                        button("Restart now") { runRoot("Restarting…") { KeepAlive.reviveNow(this@MainActivity) } })
+                    buttons(button("Status / log") { runRoot("Reading…") { KeepAlive.Result(true, KeepAlive.watchdogLog()) } },
+                        button("Remove") { runRoot("Removing…") { KeepAlive.removeWatchdog() } }, top = 8)
                 }
             }
-        }
-        root.addView(floatBox)
-
-        fun applyFloat() = CircleService.instance?.refreshFloating()
-
-        val sizeLabel = label("Size: ${Prefs.floatSize(this)} dp")
-        root.addView(sizeLabel)
-        root.addView(SeekBar(this).apply {
-            max = 36 // 36..72 dp
-            progress = Prefs.floatSize(this@MainActivity) - 36
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
-                    sizeLabel.text = "Size: ${p + 36} dp"
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {
-                    Prefs.setFloatSize(this@MainActivity, (sb?.progress ?: 12) + 36)
-                    applyFloat()
-                }
-            })
         })
-
-        val opacityLabel = label("Opacity: ${Prefs.floatOpacity(this)}%")
-        root.addView(opacityLabel)
-        root.addView(SeekBar(this).apply {
-            max = 70 // 30..100 %
-            progress = Prefs.floatOpacity(this@MainActivity) - 30
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
-                    opacityLabel.text = "Opacity: ${p + 30}%"
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {
-                    Prefs.setFloatOpacity(this@MainActivity, (sb?.progress ?: 70) + 30)
-                    applyFloat()
-                }
-            })
-        })
-
-        root.addView(CheckBox(this).apply {
-            text = "Snap to screen edge and fade when idle"
-            isChecked = Prefs.floatEdge(this@MainActivity)
-            setOnCheckedChangeListener { _, on ->
-                Prefs.setFloatEdge(this@MainActivity, on)
-                applyFloat()
-            }
-        })
-
-        hiddenInfo = label("")
-        root.addView(hiddenInfo)
-        root.addView(button("Hide button in these apps…") { pickHiddenApps() })
-        root.addView(
-            label(
-                "Tap the bubble to search, drag it anywhere. To close it: press and hold until it turns into a red X, " +
-                    "then tap the X (or untick this box). Switch it back on here any time.",
-                13f
-            )
-        )
-
-        // Test
-        root.addView(label("Try it", 17f, true))
-        root.addView(button("Test now (starts in 1 second)") {
-            val s = CircleService.instance
-            if (s == null) {
-                toast("Turn on the service first")
-            } else {
-                moveTaskToBack(true)
-                h.postDelayed({ s.trigger(300) }, 700)
-            }
-        })
-
-        setContentView(ScrollView(this).apply { addView(root) })
     }
 
     override fun onResume() {
@@ -313,9 +220,11 @@ class MainActivity : Activity() {
         CircleService.onFloatingClosed = { runOnUiThread { refresh() } }
         CircleService.instance?.refreshKeepAlive()
         refresh()
+        poll.run()
     }
 
     override fun onPause() {
+        h.removeCallbacks(poll)
         CircleService.onKeyLearned = null
         CircleService.onFloatingClosed = null
         super.onPause()
@@ -325,15 +234,17 @@ class MainActivity : Activity() {
         syncing = true
         floatBox.isChecked = Prefs.floating(this)
         syncing = false
+        floatGroup.visibility = if (Prefs.floating(this)) View.VISIBLE else View.GONE
         val n = Prefs.hiddenApps(this).size
-        hiddenInfo.text = if (n == 0) "Button shows in every app" else "Button is hidden in $n app(s)"
-        status.text = when {
-            !serviceOn() -> "✗ Service is off"
+        hiddenInfo.text = if (n == 0) "Shown in every app" else "Hidden in $n app(s)"
+        val (msg, color) = when {
+            !serviceOn() -> "✗  Service is off" to ui.bad
             CircleService.instance == null ->
-                "⚠ Service is enabled but not running (killed by the system). " +
-                    "Use “Restart service now (root)”, or switch it off and on in accessibility settings."
-            else -> "✓ Service is on"
+                "⚠  Enabled but not running (killed by the system). Switch it off and on in accessibility settings." to ui.warn
+            else -> "✓  Service is on" to ui.ok
         }
+        status.text = msg
+        ui.pill(status, color)
         keyInfo.text = when {
             Prefs.isLearning(this) -> "Press your side button now…"
             Prefs.hasKey(this) ->

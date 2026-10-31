@@ -67,6 +67,16 @@ class CircleService : AccessibilityService() {
         applyBackTap()
     }
 
+    /** One-line live readout for the setup screen, or null when back-tap is off. */
+    private var shownPeak = 0f
+    fun backTapStats(): String? {
+        val d = backTap ?: return null
+        if (!d.available) return "No accelerometer on this device"
+        if (!d.running) return "Sensor idle (screen off or registration failed)"
+        d.takePeak().let { if (it > 0f) shownPeak = it }
+        return "Sensor live · last jolt %.2f (needs ≥ %.2f) · double taps: %d".format(shownPeak, d.threshold, d.doubles)
+    }
+
     /** Starts/stops double-tap-on-back detection and applies sensitivity. Safe to call any time. */
     fun applyBackTap() {
         if (!Prefs.backTap(this)) { backTap?.stop(); backTap = null; return }

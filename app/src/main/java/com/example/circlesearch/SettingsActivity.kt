@@ -19,84 +19,49 @@ class SettingsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val d = resources.displayMetrics.density
-        val pad = (20 * d).toInt()
+        val ui = Ui(this)
+        ui.style(this)
+        setContentView(with(ui) {
+            page {
+                add(pageTitle("Settings"), 4)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad * 2, pad, pad)
-        }
+                card {
+                    add(heading("About"), 0)
+                    add(text("Version ${Updater.currentName(this@SettingsActivity)} (build ${Updater.currentBuild(this@SettingsActivity)})"), 6)
+                    add(hint("Updates come from github.com/${Updater.OWNER}/${Updater.REPO}"), 2)
+                }
 
-        fun label(s: String, size: Float = 15f, bold: Boolean = false) = TextView(this).apply {
-            text = s
-            textSize = size
-            if (bold) setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, (10 * d).toInt(), 0, (4 * d).toInt())
-        }
+                card {
+                    add(heading("Updates"), 0)
+                    add(hint("Opens GitHub in your browser. A higher build number than " +
+                        "${Updater.currentBuild(this@SettingsActivity)} is newer. After the download, tap the APK to install over the current version."), 4)
+                    buttons(button("Check for updates", primary = true) { open(Updater.RELEASES_PAGE) },
+                        button("Download APK") { open(Updater.LATEST_APK) })
+                }
 
-        root.addView(label("Settings", 26f, true))
-
-        root.addView(label("About", 17f, true))
-        root.addView(label("Version ${Updater.currentName(this)} (build ${Updater.currentBuild(this)})"))
-        root.addView(label("Updates come from github.com/${Updater.OWNER}/${Updater.REPO}", 13f))
-
-        root.addView(label("Updates", 17f, true))
-        root.addView(
-            label(
-                "Opens GitHub in your browser. Compare the number at the end of the version " +
-                    "(you have build ${Updater.currentBuild(this)}); a higher number is newer.",
-                13f
-            )
-        )
-        root.addView(Button(this).apply {
-            text = "Check for updates"
-            isAllCaps = false
-            setOnClickListener { open(Updater.RELEASES_PAGE) }
-        })
-        root.addView(Button(this).apply {
-            text = "Download latest APK"
-            isAllCaps = false
-            setOnClickListener { open(Updater.LATEST_APK) }
-        })
-        root.addView(
-            label(
-                "After the download finishes, tap it in your browser or Files app to install over the current version.",
-                13f
-            )
-        )
-
-        root.addView(label("Diagnostics", 17f, true))
-        root.addView(label("Why the app process ended (newest first). SIGNALED / OTHER while in the background means HyperOS killed it; CRASH means a real bug.", 13f))
-        exitInfo = label("", 12f)
-        exitInfo.setTextIsSelectable(true)
-        root.addView(exitInfo)
-        crashInfo = label("", 12f)
-        crashInfo.setTextIsSelectable(true)
-        root.addView(crashInfo)
-        root.addView(Button(this).apply {
-            text = "Copy last error"
-            isAllCaps = false
-            setOnClickListener {
-                val t = Diag.read(this@SettingsActivity)
-                if (t == null) {
-                    Toast.makeText(this@SettingsActivity, "Nothing recorded", Toast.LENGTH_SHORT).show()
-                } else {
-                    val cm = getSystemService(android.content.ClipboardManager::class.java)
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Circle error", t))
-                    Toast.makeText(this@SettingsActivity, "Copied", Toast.LENGTH_SHORT).show()
+                card {
+                    add(heading("Diagnostics"), 0)
+                    add(hint("Why the app process ended (newest first). SIGNALED / OTHER in the background means HyperOS killed it; CRASH means a real bug."), 4)
+                    exitInfo = mono()
+                    add(exitInfo, 10)
+                    crashInfo = mono()
+                    add(crashInfo, 8)
+                    buttons(button("Copy last error") {
+                        val t = Diag.read(this@SettingsActivity)
+                        if (t == null) {
+                            Toast.makeText(this@SettingsActivity, "Nothing recorded", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val cm = getSystemService(android.content.ClipboardManager::class.java)
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("Circle error", t))
+                            Toast.makeText(this@SettingsActivity, "Copied", Toast.LENGTH_SHORT).show()
+                        }
+                    }, button("Clear") {
+                        Diag.clear(this@SettingsActivity)
+                        showCrash()
+                    })
                 }
             }
         })
-        root.addView(Button(this).apply {
-            text = "Clear"
-            isAllCaps = false
-            setOnClickListener {
-                Diag.clear(this@SettingsActivity)
-                showCrash()
-            }
-        })
-
-        setContentView(ScrollView(this).apply { addView(root) })
     }
 
     override fun onResume() {

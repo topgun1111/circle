@@ -10,27 +10,40 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.PowerManager
 import kotlin.math.abs
+import kotlin.math.max
 
 /**
- * Double tap on the back of the phone, detected from the accelerometer.
- * A tap is a short, sharp spike on the Z axis (perpendicular to the screen) while the phone is
- * otherwise still. Two spikes 100–450 ms apart = trigger. Runs only while the screen is on.
+ * Double tap on the back of the phone, from the accelerometer.
+ * A tap = a sudden jump (jerk) on the Z axis (perpendicular to the screen) while the phone is
+ * otherwise steady. Two jumps 100-450 ms apart = trigger. Runs only while the screen is on.
  */
 class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> Unit) : SensorEventListener {
 
     @Volatile var sensitivity = 5 // 1 (hard taps only) .. 10 (very light taps)
 
+    // live diagnostics for the setup screen
+    @Volatile var samples = 0L; private set
+    @Volatile var doubles = 0; private set
+    @Volatile private var peak = 0f
+
+    /** Jerk (m/s² per sample) needed to count as a tap at the current sensitivity. */
+    val threshold get() = 1.7f - 0.14f * sensitivity
+
+    /** Strongest tap-like jolt since the last call. */
+    fun takePeak(): Float = peak.also { peak = 0f }
+
     private val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accel: Sensor? = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val main = Handler(Looper.getMainLooper())
     private var thread: HandlerThread? = null
     private var registered = false
     private var wanted = false
 
-    // gravity estimate (low-pass), motion level (EMA of |high-pass|), tap state
-    private var gx = 0f; private var gy = 0f; private var gz = 0f
-    private var primed = 0
+    private var px = 0f; private var py = 0f; private var pz = 0f
+    private var havePrev = false
     private var motion = 0f
     private var lastSpikeNs = 0L
     private var firstTapNs = 0L
@@ -43,6 +56,7 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
     private var receiverOn = false
 
     val available get() = accel != null
+    val running get() = registered
 
     fun start() {
         if (accel == null) return
@@ -69,12 +83,13 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
         if (registered || accel == null) return
         val t = HandlerThread("backtap").also { it.start() }
         thread = t
-        primed = 0; motion = 0f; firstTapNs = 0L; lastSpikeNs = 0L
+        havePrev = false; motion = 0f; firstTapNs = 0L; lastSpikeNs = 0L
+        val h = Handler(t.looper)
         // 200 Hz needs HIGH_SAMPLING_RATE_SENSORS (declared in the manifest)
         registered = try {
-            sm.registerListener(this, accel, 5_000, 0, Handler(t.looper))
+            sm.registerListener(this, accel, 5_000, 0, h)
         } catch (_: SecurityException) {
-            sm.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME, Handler(t.looper))
+            sm.registerListener(this, accel, SensorManager.SENSOR_DELAY_GAME, h)
         }
     }
 
@@ -85,32 +100,27 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
     }
 
     override fun onSensorChanged(e: SensorEvent) {
+        samples++
         val x = e.values[0]; val y = e.values[1]; val z = e.values[2]
-        if (primed < 50) { // seed gravity from the first samples
-            gx = x; gy = y; gz = z; primed++; return
-        }
-        val a = 0.92f
-        gx = a * gx + (1 - a) * x; gy = a * gy + (1 - a) * y; gz = a * gz + (1 - a) * z
-        val hx = x - gx; val hy = y - gy; val hz = z - gz
+        if (!havePrev) { px = x; py = y; pz = z; havePrev = true; return }
+        val dx = abs(x - px); val dy = abs(y - py); val dz = abs(z - pz)
+        px = x; py = y; pz = z
 
-        val threshold = 3.2f - 0.25f * sensitivity // lvl 5 -> 1.95 m/s²
-        val az = abs(hz)
-        // Evaluate the spike against motion measured *before* it, so the tap itself doesn't count.
-        val calm = motion < 0.6f
-        motion = 0.98f * motion + 0.02f * (abs(hx) + abs(hy) + az)
+        val calm = motion < 0.45f // measured before this sample, so the tap itself doesn't count
+        motion = 0.9f * motion + 0.1f * (dx + dy + dz)
 
-        if (az < threshold || !calm) return
-        // Must be Z-dominant: a tap on the back, not a shake or a tilt.
-        if (az < 1.2f * maxOf(abs(hx), abs(hy))) return
+        if (!calm || dz < 0.4f || dz < max(dx, dy)) return // not a Z-dominant jolt on a steady phone
+        if (dz > peak) peak = dz
+        if (dz < threshold) return
 
         val t = e.timestamp
         if (t - lastSpikeNs < 70_000_000L) { lastSpikeNs = t; return } // ringing of the same tap
         lastSpikeNs = t
 
-        val gap = t - firstTapNs
-        if (firstTapNs != 0L && gap in 100_000_000L..450_000_000L) {
+        if (firstTapNs != 0L && t - firstTapNs in 100_000_000L..450_000_000L) {
             firstTapNs = 0L
-            Handler(android.os.Looper.getMainLooper()).post(onDoubleTap)
+            doubles++
+            main.post(onDoubleTap)
         } else {
             firstTapNs = t
         }
