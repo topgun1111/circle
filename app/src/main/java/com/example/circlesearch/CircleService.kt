@@ -48,18 +48,27 @@ class CircleService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
-        hiddenApps = Prefs.hiddenApps(this)
-        applyFloating()
+        try {
+            hiddenApps = Prefs.hiddenApps(this)
+            applyFloating()
+        } catch (e: Exception) {
+            Diag.save(this, "onServiceConnected failed", e)
+            toast("Circle to Search: startup error, see Settings > Diagnostics")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        val pkg = event.packageName?.toString() ?: return
-        // Ignore our own windows, system UI and the keyboard, so they don't count as "the current app".
-        if (pkg == packageName || pkg == "com.android.systemui" || pkg == imePackage()) return
-        if (pkg == currentPkg) return
-        currentPkg = pkg
-        updateAppHidden()
+        try {
+            if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+            val pkg = event.packageName?.toString() ?: return
+            // Ignore our own windows, system UI and the keyboard, so they don't count as "the current app".
+            if (pkg == packageName || pkg == "com.android.systemui" || pkg == imePackage()) return
+            if (pkg == currentPkg) return
+            currentPkg = pkg
+            updateAppHidden()
+        } catch (e: Exception) {
+            Diag.save(this, "onAccessibilityEvent failed", e)
+        }
     }
 
     private fun imePackage(): String? =

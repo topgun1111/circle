@@ -22,6 +22,7 @@ class SettingsActivity : Activity() {
     private lateinit var checkBtn: Button
     private lateinit var installBtn: Button
     private lateinit var progress: ProgressBar
+    private lateinit var crashInfo: TextView
 
     private var latest: Updater.Release? = null
     private var busy = false
@@ -77,7 +78,44 @@ class SettingsActivity : Activity() {
         notes = label("", 13f)
         root.addView(notes)
 
+        root.addView(label("Diagnostics", 17f, true))
+        crashInfo = label("", 12f)
+        crashInfo.setTextIsSelectable(true)
+        root.addView(crashInfo)
+        root.addView(Button(this).apply {
+            text = "Copy last error"
+            isAllCaps = false
+            setOnClickListener {
+                val t = Diag.read(this@SettingsActivity)
+                if (t == null) {
+                    Toast.makeText(this@SettingsActivity, "Nothing recorded", Toast.LENGTH_SHORT).show()
+                } else {
+                    val cm = getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Circle error", t))
+                    Toast.makeText(this@SettingsActivity, "Copied", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Clear"
+            isAllCaps = false
+            setOnClickListener {
+                Diag.clear(this@SettingsActivity)
+                showCrash()
+            }
+        })
+
         setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        showCrash()
+    }
+
+    private fun showCrash() {
+        val t = Diag.read(this)
+        crashInfo.text = if (t == null) "No error recorded." else t.take(1500)
     }
 
     private fun ui(block: () -> Unit) = runOnUiThread(block)
