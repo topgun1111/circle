@@ -171,32 +171,32 @@ object KeepAlive {
         )
     }
 
-    /** Tries each known OEM screen (Xiaomi, then vivo/iQOO) and falls back to the app details page. */
-    private fun openFirst(a: Activity, vararg targets: Pair<String, String>, extras: (Intent) -> Unit = {}) {
-        for ((pkg, cls) in targets) {
-            try {
-                a.startActivity(Intent().setClassName(pkg, cls).also(extras))
-                return
-            } catch (_: Exception) {
-            }
+    fun openAutostart(a: Activity) {
+        try {
+            a.startActivity(
+                Intent().setClassName(
+                    "com.miui.securitycenter",
+                    "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                )
+            )
+        } catch (_: Exception) {
+            appDetails(a)
         }
-        appDetails(a)
     }
 
-    fun openAutostart(a: Activity) = openFirst(
-        a,
-        "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
-        "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
-        "com.iqoo.secure" to "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"
-    )
-
     /** HyperOS "Battery saver" page for this app (choose "No restrictions"). */
-    fun openBatterySaver(a: Activity) = openFirst(
-        a,
-        "com.miui.powerkeeper" to "com.miui.powerkeeper.ui.HiddenAppsConfigActivity",
-        "com.vivo.abe" to "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity",
-        "com.iqoo.powersaving" to "com.iqoo.powersaving.PowerSavingManagerActivity"
-    ) {
-        it.putExtra("package_name", a.packageName).putExtra("package_label", a.getString(R.string.app_name))
+    fun openBatterySaver(a: Activity) {
+        try {
+            a.startActivity(
+                Intent().setClassName(
+                    "com.miui.powerkeeper",
+                    "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"
+                )
+                    .putExtra("package_name", a.packageName)
+                    .putExtra("package_label", a.getString(R.string.app_name))
+            )
+        } catch (_: Exception) {
+            appDetails(a)
+        }
     }
 }

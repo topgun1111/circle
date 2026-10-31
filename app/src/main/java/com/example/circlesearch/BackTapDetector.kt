@@ -85,7 +85,7 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
         thread = t
         havePrev = false; motion = 0f; firstTapNs = 0L; lastSpikeNs = 0L
         val h = Handler(t.looper)
-        // 200 Hz needs HIGH_SAMPLING_RATE_SENSORS (declared in the manifest)
+        // 5 ms = 200 Hz, the most Android allows without the HIGH_SAMPLING_RATE_SENSORS permission
         registered = try {
             sm.registerListener(this, accel, 5_000, 0, h)
         } catch (_: SecurityException) {
