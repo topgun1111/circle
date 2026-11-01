@@ -209,18 +209,34 @@ class MainActivity : Activity() {
                 CircleService.instance?.applyBackTap()
             }
         })
-        val tapLabel = label("Sensitivity: ${Prefs.backTapLevel(this)} / 10")
+        val tapLabel = label("Sensitivity: ${Prefs.backTapLevel(this)} / 20")
         root.addView(tapLabel)
         root.addView(SeekBar(this).apply {
-            max = 9 // 1..10
+            max = 19 // 1..20
             progress = Prefs.backTapLevel(this@MainActivity) - 1
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
-                    tapLabel.text = "Sensitivity: ${p + 1} / 10"
+                    tapLabel.text = "Sensitivity: ${p + 1} / 20"
                 }
                 override fun onStartTrackingTouch(sb: SeekBar?) {}
                 override fun onStopTrackingTouch(sb: SeekBar?) {
-                    Prefs.setBackTapLevel(this@MainActivity, (sb?.progress ?: 4) + 1)
+                    Prefs.setBackTapLevel(this@MainActivity, (sb?.progress ?: 14) + 1)
+                    CircleService.instance?.applyBackTap()
+                }
+            })
+        })
+        val gapLabel = label("Tap interval: ${Prefs.backTapGap(this)} ms (max pause between the two taps)")
+        root.addView(gapLabel)
+        root.addView(SeekBar(this).apply {
+            max = 16 // 200..1000 ms in 50 ms steps
+            progress = ((Prefs.backTapGap(this@MainActivity) - 200) / 50).coerceIn(0, 16)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
+                    gapLabel.text = "Tap interval: ${200 + p * 50} ms (max pause between the two taps)"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {
+                    Prefs.setBackTapGap(this@MainActivity, 200 + (sb?.progress ?: 5) * 50)
                     CircleService.instance?.applyBackTap()
                 }
             })

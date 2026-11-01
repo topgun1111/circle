@@ -72,6 +72,7 @@ class CircleService : AccessibilityService() {
         if (!Prefs.backTap(this)) { backTap?.stop(); backTap = null; return }
         val d = backTap ?: BackTapDetector(this) { trigger(150) }.also { backTap = it }
         d.sensitivity = Prefs.backTapLevel(this)
+        d.maxGapMs = Prefs.backTapGap(this)
         d.start()
     }
 

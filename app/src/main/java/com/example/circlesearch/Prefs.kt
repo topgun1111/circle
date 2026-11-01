@@ -39,8 +39,13 @@ object Prefs {
 
     fun backTap(c: Context) = p(c).getBoolean("back_tap", false)
     fun setBackTap(c: Context, v: Boolean) = p(c).edit().putBoolean("back_tap", v).apply()
-    fun backTapLevel(c: Context) = p(c).getInt("back_tap_level", 5)
-    fun setBackTapLevel(c: Context, v: Int) = p(c).edit().putInt("back_tap_level", v).apply()
+    // 1..20. Old 1..10 setting is carried over as 11..20 (same behaviour as before); 1..10 are the new, harder-to-trigger steps.
+    fun backTapLevel(c: Context) = p(c).getInt("back_tap_level2", p(c).getInt("back_tap_level", 5) + 10)
+    fun setBackTapLevel(c: Context, v: Int) = p(c).edit().putInt("back_tap_level2", v).apply()
+
+    /** Max pause between the two back taps, in ms (200..1000). */
+    fun backTapGap(c: Context) = p(c).getInt("back_tap_gap", 450)
+    fun setBackTapGap(c: Context, v: Int) = p(c).edit().putInt("back_tap_gap", v).apply()
 
     fun rectMode(c: Context) = p(c).getBoolean("rect_mode", false)
     fun setRectMode(c: Context, v: Boolean) = p(c).edit().putBoolean("rect_mode", v).apply()

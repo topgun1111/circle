@@ -18,11 +18,14 @@ import kotlin.math.max
 /**
  * Double tap on the back of the phone, from the accelerometer.
  * A tap = a sudden jump (jerk) on the Z axis (perpendicular to the screen) while the phone is
- * otherwise steady. Two jumps 100-450 ms apart = trigger. Runs only while the screen is on.
+ * otherwise steady. Two jumps 100 ms..maxGapMs apart (default 450, user setting) = trigger. Runs only while the screen is on.
  */
 class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> Unit) : SensorEventListener {
 
-    @Volatile var sensitivity = 5 // 1 (hard taps only) .. 10 (very light taps)
+    @Volatile var sensitivity = 15 // 1 (only very hard knocks) .. 20 (very light taps); 11..20 = the old 1..10 scale
+
+    /** Longest pause between the two taps that still counts as a double tap (ms). Shortest is always 100 ms. */
+    @Volatile var maxGapMs = 450
 
     // live diagnostics for the setup screen
     @Volatile var samples = 0L; private set
@@ -30,7 +33,8 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
     @Volatile private var peak = 0f
 
     /** Jerk (m/s² per sample) needed to count as a tap at the current sensitivity. */
-    val threshold get() = 1.7f - 0.14f * sensitivity
+    val threshold get() = if (sensitivity >= 11) 1.7f - 0.14f * (sensitivity - 10) // 1.56 .. 0.30
+        else 1.56f + 0.5f * (11 - sensitivity)                                     // 2.06 .. 6.56: screen touches no longer count
 
     /** Strongest tap-like jolt since the last call. */
     fun takePeak(): Float = peak.also { peak = 0f }
@@ -117,7 +121,7 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
         if (t - lastSpikeNs < 70_000_000L) { lastSpikeNs = t; return } // ringing of the same tap
         lastSpikeNs = t
 
-        if (firstTapNs != 0L && t - firstTapNs in 100_000_000L..450_000_000L) {
+        if (firstTapNs != 0L && t - firstTapNs in 100_000_000L..maxGapMs * 1_000_000L) {
             firstTapNs = 0L
             doubles++
             main.post(onDoubleTap)
