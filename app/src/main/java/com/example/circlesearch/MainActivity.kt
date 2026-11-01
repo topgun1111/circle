@@ -174,6 +174,20 @@ class MainActivity : Activity() {
         root.addView(shapeGroup)
         root.addView(label("You can also switch while selecting: tap the shape icon at the top left of the screenshot.", 13f))
 
+        // Power button / assistant
+        root.addView(label("Power button long-press (assistant)", 17f, true))
+        root.addView(button("Set as default digital assistant") {
+            try { startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)) }
+            catch (_: Exception) { startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) }
+        })
+        root.addView(
+            label(
+                "Pick “Circle to Search” as Digital assistant app. Then, in system settings, set “Press and hold power button” " +
+                    "to Digital assistant (on some phones: Settings > Gestures / Button shortcuts). The assist gesture also works.",
+                13f
+            )
+        )
+
         // Step 4
         root.addView(label("4. Quick Settings button", 17f, true))
         root.addView(button("Add button to Quick Settings") { addTile() })
