@@ -395,6 +395,7 @@ class OverlayView(
                         } else {
                             selected = true
                             performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                            post { if (!done && selected) perform(ACTION_SEARCH) }
                         }
                     }
                     Drag.BAR -> {
