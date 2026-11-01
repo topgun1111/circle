@@ -27,9 +27,25 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
     /** Longest pause between the two taps that still counts as a double tap (ms). Shortest is always 100 ms. */
     @Volatile var maxGapMs = 450
 
+    // Screen-touch guard: the service tells us when a finger lands on the screen (elapsedRealtime ns).
+    // A jolt that coincides with a touch is a screen tap, not a back tap, and is thrown away.
+    @Volatile var screenGuard = false
+    private val touchTimes = LongArray(8)
+    private var touchIdx = 0
+
+    fun noteScreenTouch(ns: Long) = synchronized(touchTimes) {
+        touchTimes[touchIdx] = ns; touchIdx = (touchIdx + 1) % touchTimes.size
+    }
+
+    /** A finger touched the screen from 100 ms before to 300 ms after this moment (covers the touch-down and the lift jolts). */
+    private fun nearScreenTouch(t: Long) = synchronized(touchTimes) {
+        touchTimes.any { it != 0L && t - it in -100_000_000L..300_000_000L }
+    }
+
     // live diagnostics for the setup screen
     @Volatile var samples = 0L; private set
     @Volatile var doubles = 0; private set
+    @Volatile var ignored = 0; private set // double taps rejected because the screen was being touched
     @Volatile private var peak = 0f
 
     /** Jerk (m/s² per sample) needed to count as a tap at the current sensitivity. */
@@ -122,9 +138,17 @@ class BackTapDetector(private val ctx: Context, private val onDoubleTap: () -> U
         lastSpikeNs = t
 
         if (firstTapNs != 0L && t - firstTapNs in 100_000_000L..maxGapMs * 1_000_000L) {
+            val t1 = firstTapNs
             firstTapNs = 0L
-            doubles++
-            main.post(onDoubleTap)
+            if (screenGuard) {
+                // wait a moment so the touch events of a screen tap have arrived, then check both jolts
+                main.postDelayed({
+                    if (nearScreenTouch(t1) || nearScreenTouch(t)) ignored++ else { doubles++; onDoubleTap() }
+                }, 120)
+            } else {
+                doubles++
+                main.post(onDoubleTap)
+            }
         } else {
             firstTapNs = t
         }

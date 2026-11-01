@@ -69,11 +69,49 @@ class CircleService : AccessibilityService() {
 
     /** Starts/stops double-tap-on-back detection and applies sensitivity. Safe to call any time. */
     fun applyBackTap() {
-        if (!Prefs.backTap(this)) { backTap?.stop(); backTap = null; return }
+        if (!Prefs.backTap(this)) { backTap?.stop(); backTap = null; removeTouchWatch(); return }
         val d = backTap ?: BackTapDetector(this) { trigger(150) }.also { backTap = it }
         d.sensitivity = Prefs.backTapLevel(this)
         d.maxGapMs = Prefs.backTapGap(this)
         d.start()
+        ensureTouchWatch()
+        d.screenGuard = touchWatch != null
+    }
+
+    // ---- Screen-touch guard -----------------------------------------------
+    // A 1x1 invisible window that gets ACTION_OUTSIDE for every touch elsewhere on the screen. Only the time of
+    // the touch is used, so back-tap jolts caused by tapping the screen can be told apart from real back taps.
+    private var touchWatch: View? = null
+
+    private fun ensureTouchWatch() {
+        if (touchWatch != null) return
+        try {
+            val v = View(this)
+            v.setOnTouchListener { _, ev ->
+                val off = SystemClock.elapsedRealtime() - SystemClock.uptimeMillis()
+                backTap?.noteScreenTouch((off + ev.eventTime) * 1_000_000L)
+                false
+            }
+            val lp = WindowManager.LayoutParams(
+                1, 1,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.TOP or Gravity.START }
+            (getSystemService(WINDOW_SERVICE) as WindowManager).addView(v, lp)
+            touchWatch = v
+        } catch (e: Exception) {
+            Diag.save(this, "touch watch failed", e)
+        }
+    }
+
+    private fun removeTouchWatch() {
+        backTap?.screenGuard = false
+        val v = touchWatch ?: return
+        touchWatch = null
+        try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(v) } catch (_: Exception) {}
     }
 
     // ---- Keep-alive notification ------------------------------------------
@@ -159,6 +197,7 @@ class CircleService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
         backTap?.stop(); backTap = null
+        removeTouchWatch()
         stopKeepAlive()
         hideFloating()
         removeOverlay()
