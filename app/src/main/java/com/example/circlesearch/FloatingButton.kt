@@ -17,7 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.view.animation.OvershootInterpolator
+import android.view.animation.DecelerateInterpolator
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.hypot
@@ -70,6 +70,7 @@ class FloatingButton(
     private var pullX = 0f
     private var pullY = 0f
     private var rubberAnim: ValueAnimator? = null
+    private var effect: RubberEffect? = null
     private val neck = Path()
     private val neckPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6202124.toInt() }
 
@@ -128,13 +129,13 @@ class FloatingButton(
     }
 
     override fun onDraw(canvas: Canvas) {
-        // The window is centred on the anchor (the docked bubble), also while it is enlarged for a pull.
-        val ax = width / 2f
-        val ay = height / 2f
-        if (rubber && (pullX != 0f || pullY != 0f)) drawNeck(canvas, ax, ay, ax + pullX, ay + pullY)
+        drawBubble(canvas)
+    }
+
+    private fun drawBubbleAt(canvas: Canvas, cx: Float, cy: Float, scale: Float) {
         canvas.save()
-        canvas.translate(ax + pullX - baseSize / 2f, ay + pullY - baseSize / 2f)
-        if (armed) canvas.scale(1.12f, 1.12f, baseSize / 2f, baseSize / 2f)
+        canvas.translate(cx - baseSize / 2f, cy - baseSize / 2f)
+        if (scale != 1f) canvas.scale(scale, scale, baseSize / 2f, baseSize / 2f)
         drawBubble(canvas)
         canvas.restore()
     }
@@ -160,7 +161,6 @@ class FloatingButton(
         neck.quadTo(mx - px * rm, my - py * rm, ax - px * ra, ay - py * ra)
         neck.close()
         canvas.drawPath(neck, neckPaint)
-        canvas.drawCircle(ax, ay, ra, neckPaint)
     }
 
     private fun drawBubble(canvas: Canvas) {
@@ -229,21 +229,47 @@ class FloatingButton(
     }
 
     // ---- Rubber pull ----------------------------------------------------------
+    // The bubble itself never moves. The stretch is drawn by a separate full-screen, untouchable
+    // overlay that exists only while you pull.
+
+    private inner class RubberEffect(ctx: Context) : View(ctx) {
+        private val mine = IntArray(2)
+        private val btn = IntArray(2)
+        override fun onDraw(canvas: Canvas) {
+            getLocationOnScreen(mine)
+            this@FloatingButton.getLocationOnScreen(btn)
+            val ax = (btn[0] - mine[0]) + this@FloatingButton.width / 2f
+            val ay = (btn[1] - mine[1]) + this@FloatingButton.height / 2f
+            if (pullX != 0f || pullY != 0f) drawNeck(canvas, ax, ay, ax + pullX, ay + pullY)
+            drawBubbleAt(canvas, ax, ay, 1f)
+            drawBubbleAt(canvas, ax + pullX, ay + pullY, if (armed) 1.12f else 1f)
+        }
+    }
 
     private fun isDocked() = edgeMode && (tucked || lp.x <= 0 || lp.x >= screenW() - lp.width)
 
     private fun startRubber() {
-        untuck()
-        rubber = true
-        armed = false
-        pullX = 0f
-        pullY = 0f
-        val r = maxPull.toInt()
-        lp.width = baseSize + 2 * r
-        lp.height = baseSize + 2 * r
-        lp.x -= r
-        lp.y -= r
-        try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+        removeEffect()
+        val v = RubberEffect(context)
+        val p = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
+        try {
+            wm.addView(v, p)
+            effect = v
+            rubber = true
+        } catch (_: Exception) {
+        }
     }
 
     private fun updateRubber(dx: Float, dy: Float) {
@@ -257,51 +283,48 @@ class FloatingButton(
             armed = nowArmed
             if (armed) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         }
-        invalidate()
+        effect?.invalidate()
     }
 
-    private fun finishRubber() {
+    private fun removeEffect() {
         rubberAnim?.cancel()
-        if (!rubber) return
+        rubberAnim = null
         rubber = false
         armed = false
         pullX = 0f
         pullY = 0f
-        val r = maxPull.toInt()
-        lp.width = baseSize
-        lp.height = baseSize
-        lp.x += r
-        lp.y += r
-        try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
-        invalidate()
-        scheduleIdle()
+        effect?.let { try { wm.removeViewImmediate(it) } catch (_: Exception) {} }
+        effect = null
     }
 
     private fun releaseRubber() {
-        val fire = armed
+        if (armed) { // capture right away; the stretch is removed first so it never ends up in the shot
+            performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            removeEffect()
+            onTap()
+            scheduleIdle()
+            return
+        }
         val sx = pullX
         val sy = pullY
         armed = false
-        if (fire) {
-            performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-        }
         rubberAnim?.cancel()
         rubberAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 240
-            interpolator = OvershootInterpolator(2.5f)
+            duration = 180
+            interpolator = DecelerateInterpolator()
             addUpdateListener {
                 val t = it.animatedValue as Float
                 pullX = sx * (1f - t)
                 pullY = sy * (1f - t)
-                invalidate()
+                effect?.invalidate()
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 private var cancelled = false
                 override fun onAnimationCancel(a: android.animation.Animator) { cancelled = true }
                 override fun onAnimationEnd(a: android.animation.Animator) {
                     if (cancelled) return
-                    finishRubber() // stretch gone and window back to normal size first...
-                    if (fire) onTap() // ...then capture, so no stretch ends up in the screenshot
+                    removeEffect()
+                    scheduleIdle()
                 }
             })
             start()
@@ -314,7 +337,7 @@ class FloatingButton(
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                finishRubber()
+                removeEffect()
                 h.removeCallbacks(idle)
                 anim?.cancel()
                 downRawX = e.rawX
@@ -336,7 +359,7 @@ class FloatingButton(
                         val left = lp.x + lp.width / 2 < screenW() / 2
                         val inward = if (left) dx else -dx
                         mode = if (inward > abs(dy)) MODE_RUBBER else MODE_SLIDE
-                        if (tucked) untuck()
+                        if (tucked && mode == MODE_SLIDE) untuck()
                         startX = lp.x
                         startY = lp.y
                         downRawX = e.rawX
@@ -386,7 +409,7 @@ class FloatingButton(
             MotionEvent.ACTION_CANCEL -> {
                 h.removeCallbacks(longPress)
                 dragging = false
-                if (mode == MODE_RUBBER) releaseRubber() else scheduleIdle()
+                if (mode == MODE_RUBBER) { armed = false; releaseRubber() } else scheduleIdle()
             }
         }
         return true
@@ -400,7 +423,7 @@ class FloatingButton(
 
     override fun onConfigurationChanged(newConfig: Configuration?) {
         super.onConfigurationChanged(newConfig)
-        finishRubber()
+        removeEffect()
         tucked = false
         alpha = baseAlpha
         clamp() // fold/unfold or rotate: keep the bubble on screen
@@ -410,7 +433,7 @@ class FloatingButton(
 
     override fun onDetachedFromWindow() {
         anim?.cancel()
-        rubberAnim?.cancel()
+        removeEffect()
         h.removeCallbacksAndMessages(null)
         super.onDetachedFromWindow()
     }
