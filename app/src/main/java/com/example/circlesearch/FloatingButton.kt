@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.os.Handler
@@ -16,11 +17,18 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.animation.OvershootInterpolator
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.hypot
 
 /**
  * Small draggable bubble. Tap = start Circle to Search.
  * Long-press = it turns into a red X; tap the X to close the bubble (it reverts by itself after 3 s).
+ *
+ * Edge mode, docked at a side: hold the bubble and pull it towards the screen centre. It stretches like
+ * rubber but stays anchored to the edge; past the arming distance (it turns bigger + haptic tick) let go
+ * and it snaps back and starts the capture. Dragging up/down slides it along the edge.
  *
  * Optional edge mode: it stays where you drop it; after the configured idle timeout it glides to the
  * nearest screen edge, tucks mostly off-screen (~70%) and fades. Touching it brings it back.
@@ -51,6 +59,19 @@ class FloatingButton(
     private var startX = 0
     private var startY = 0
     private var anim: ValueAnimator? = null
+
+    // Rubber-band pull state
+    private val baseSize = lp.width
+    private val maxPull = 150 * d
+    private val armDist = 0.45f * maxPull
+    private var mode = MODE_FREE
+    private var rubber = false
+    private var armed = false
+    private var pullX = 0f
+    private var pullY = 0f
+    private var rubberAnim: ValueAnimator? = null
+    private val neck = Path()
+    private val neckPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6202124.toInt() }
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6202124.toInt() }
     private val redFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xF0D93025.toInt() }
@@ -100,19 +121,56 @@ class FloatingButton(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         ring.shader = LinearGradient(
-            0f, 0f, w.toFloat(), h.toFloat(),
+            0f, 0f, baseSize.toFloat(), baseSize.toFloat(),
             intArrayOf(0xFF4285F4.toInt(), 0xFFEA4335.toInt(), 0xFFFBBC05.toInt(), 0xFF34A853.toInt()),
             null, Shader.TileMode.CLAMP
         )
     }
 
     override fun onDraw(canvas: Canvas) {
-        val cx = width / 2f
-        val cy = height / 2f
-        val r = width / 2f - 2 * d
+        // The window is centred on the anchor (the docked bubble), also while it is enlarged for a pull.
+        val ax = width / 2f
+        val ay = height / 2f
+        if (rubber && (pullX != 0f || pullY != 0f)) drawNeck(canvas, ax, ay, ax + pullX, ay + pullY)
+        canvas.save()
+        canvas.translate(ax + pullX - baseSize / 2f, ay + pullY - baseSize / 2f)
+        if (armed) canvas.scale(1.12f, 1.12f, baseSize / 2f, baseSize / 2f)
+        drawBubble(canvas)
+        canvas.restore()
+    }
+
+    private fun drawNeck(canvas: Canvas, ax: Float, ay: Float, hx: Float, hy: Float) {
+        val len = hypot(hx - ax, hy - ay)
+        if (len < 1f) return
+        val ux = (hx - ax) / len
+        val uy = (hy - ay) / len
+        val px = -uy
+        val py = ux
+        val r = baseSize / 2f - 2 * d
+        val ra = r * 0.95f
+        val rh = r * 0.6f
+        val rm = r * (0.5f - 0.25f * (len / maxPull).coerceAtMost(1f))
+        val mx = (ax + hx) / 2f
+        val my = (ay + hy) / 2f
+        neckPaint.color = if (armed) 0xF034A853.toInt() else 0xE6202124.toInt()
+        neck.reset()
+        neck.moveTo(ax + px * ra, ay + py * ra)
+        neck.quadTo(mx + px * rm, my + py * rm, hx + px * rh, hy + py * rh)
+        neck.lineTo(hx - px * rh, hy - py * rh)
+        neck.quadTo(mx - px * rm, my - py * rm, ax - px * ra, ay - py * ra)
+        neck.close()
+        canvas.drawPath(neck, neckPaint)
+        canvas.drawCircle(ax, ay, ra, neckPaint)
+    }
+
+    private fun drawBubble(canvas: Canvas) {
+        val w = baseSize.toFloat()
+        val cx = w / 2f
+        val cy = w / 2f
+        val r = w / 2f - 2 * d
         if (closeMode) {
             canvas.drawCircle(cx, cy, r, redFill)
-            val s = width * 0.146f
+            val s = w * 0.146f
             canvas.drawLine(cx - s, cy - s, cx + s, cy + s, icon)
             canvas.drawLine(cx - s, cy + s, cx + s, cy - s, icon)
         } else if (chromeStyle) {
@@ -126,7 +184,7 @@ class FloatingButton(
         } else {
             canvas.drawCircle(cx, cy, r, fill)
             canvas.drawCircle(cx, cy, r, ring)
-            canvas.drawCircle(cx, cy, width * 0.17f, icon)
+            canvas.drawCircle(cx, cy, w * 0.17f, icon)
         }
     }
 
@@ -170,12 +228,90 @@ class FloatingButton(
         animate().alpha(baseAlpha).setDuration(120).start()
     }
 
+    // ---- Rubber pull ----------------------------------------------------------
+
+    private fun isDocked() = edgeMode && (tucked || lp.x <= 0 || lp.x >= screenW() - lp.width)
+
+    private fun startRubber() {
+        untuck()
+        rubber = true
+        armed = false
+        pullX = 0f
+        pullY = 0f
+        val r = maxPull.toInt()
+        lp.width = baseSize + 2 * r
+        lp.height = baseSize + 2 * r
+        lp.x -= r
+        lp.y -= r
+        try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+    }
+
+    private fun updateRubber(dx: Float, dy: Float) {
+        val m = hypot(dx, dy)
+        val k = maxPull * 0.9f
+        val s = if (m == 0f) 0f else k * (1f - exp(-m / k))
+        pullX = if (m == 0f) 0f else dx / m * s
+        pullY = if (m == 0f) 0f else dy / m * s
+        val nowArmed = s >= armDist
+        if (nowArmed != armed) {
+            armed = nowArmed
+            if (armed) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        }
+        invalidate()
+    }
+
+    private fun finishRubber() {
+        rubberAnim?.cancel()
+        if (!rubber) return
+        rubber = false
+        armed = false
+        pullX = 0f
+        pullY = 0f
+        val r = maxPull.toInt()
+        lp.width = baseSize
+        lp.height = baseSize
+        lp.x += r
+        lp.y += r
+        try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+        invalidate()
+        scheduleIdle()
+    }
+
+    private fun releaseRubber() {
+        val fire = armed
+        val sx = pullX
+        val sy = pullY
+        armed = false
+        if (fire) {
+            performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            onTap()
+        }
+        rubberAnim?.cancel()
+        rubberAnim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 260
+            interpolator = OvershootInterpolator(2.5f)
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                pullX = sx * (1f - t)
+                pullY = sy * (1f - t)
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(a: android.animation.Animator) { cancelled = true }
+                override fun onAnimationEnd(a: android.animation.Animator) { if (!cancelled) finishRubber() }
+            })
+            start()
+        }
+    }
+
     // ---- Touch --------------------------------------------------------------
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                finishRubber()
                 h.removeCallbacks(idle)
                 anim?.cancel()
                 downRawX = e.rawX
@@ -184,6 +320,7 @@ class FloatingButton(
                 startY = lp.y
                 dragging = false
                 longFired = false
+                mode = MODE_FREE
                 h.postDelayed(longPress, 500)
             }
             MotionEvent.ACTION_MOVE -> {
@@ -192,28 +329,46 @@ class FloatingButton(
                 if (!dragging && (abs(dx) > slop || abs(dy) > slop)) {
                     dragging = true
                     h.removeCallbacks(longPress)
-                    if (tucked) { // pull it out from the side, then drag from there
-                        untuck()
+                    if (isDocked() && !closeMode) {
+                        val left = lp.x + lp.width / 2 < screenW() / 2
+                        val inward = if (left) dx else -dx
+                        mode = if (inward > abs(dy)) MODE_RUBBER else MODE_SLIDE
+                        if (tucked) untuck()
                         startX = lp.x
+                        startY = lp.y
                         downRawX = e.rawX
                         downRawY = e.rawY
-                        startY = lp.y
+                        if (mode == MODE_RUBBER) startRubber()
                         return true
                     }
                 }
                 if (dragging) {
-                    lp.x = startX + dx.toInt()
-                    lp.y = startY + dy.toInt()
-                    clamp()
-                    try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+                    when (mode) {
+                        MODE_RUBBER -> updateRubber(dx, dy)
+                        MODE_SLIDE -> {
+                            lp.y = startY + dy.toInt()
+                            clamp()
+                            try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+                        }
+                        else -> {
+                            lp.x = startX + dx.toInt()
+                            lp.y = startY + dy.toInt()
+                            clamp()
+                            try { wm.updateViewLayout(this, lp) } catch (_: Exception) {}
+                        }
+                    }
                 }
             }
             MotionEvent.ACTION_UP -> {
                 h.removeCallbacks(longPress)
                 if (dragging) {
                     dragging = false
-                    Prefs.savePos(context, if (edgeMode) edgeX() else lp.x, lp.y)
-                    scheduleIdle()
+                    if (mode == MODE_RUBBER) {
+                        releaseRubber()
+                    } else {
+                        Prefs.savePos(context, if (edgeMode) edgeX() else lp.x, lp.y)
+                        scheduleIdle()
+                    }
                 } else if (!longFired) {
                     if (closeMode) {
                         h.removeCallbacks(revert)
@@ -228,7 +383,7 @@ class FloatingButton(
             MotionEvent.ACTION_CANCEL -> {
                 h.removeCallbacks(longPress)
                 dragging = false
-                scheduleIdle()
+                if (mode == MODE_RUBBER) releaseRubber() else scheduleIdle()
             }
         }
         return true
@@ -242,6 +397,7 @@ class FloatingButton(
 
     override fun onConfigurationChanged(newConfig: Configuration?) {
         super.onConfigurationChanged(newConfig)
+        finishRubber()
         tucked = false
         alpha = baseAlpha
         clamp() // fold/unfold or rotate: keep the bubble on screen
@@ -251,7 +407,14 @@ class FloatingButton(
 
     override fun onDetachedFromWindow() {
         anim?.cancel()
+        rubberAnim?.cancel()
         h.removeCallbacksAndMessages(null)
         super.onDetachedFromWindow()
+    }
+
+    private companion object {
+        const val MODE_FREE = 0
+        const val MODE_SLIDE = 1
+        const val MODE_RUBBER = 2
     }
 }
