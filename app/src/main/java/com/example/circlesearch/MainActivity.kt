@@ -297,6 +297,15 @@ class MainActivity : Activity() {
             })
         })
 
+        root.addView(CheckBox(this).apply {
+            text = "Chrome-style icon"
+            isChecked = Prefs.floatChrome(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setFloatChrome(this@MainActivity, on)
+                applyFloat()
+            }
+        })
+
         val edgeLabel = label("Move to side after: ${Prefs.floatEdgeDelay(this)} s")
         val edgeSeek = SeekBar(this).apply {
             max = 29 // 1..30 s

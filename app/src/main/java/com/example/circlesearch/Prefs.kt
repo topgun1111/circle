@@ -59,6 +59,8 @@ object Prefs {
     /** Seconds of inactivity before the bubble moves itself to the nearest side (1..30). */
     fun floatEdgeDelay(c: Context) = p(c).getInt("float_edge_delay", 3)
     fun setFloatEdgeDelay(c: Context, v: Int) = p(c).edit().putInt("float_edge_delay", v).apply()
+    fun floatChrome(c: Context) = p(c).getBoolean("float_chrome", true)
+    fun setFloatChrome(c: Context, v: Boolean) = p(c).edit().putBoolean("float_chrome", v).apply()
     fun hiddenApps(c: Context): Set<String> = HashSet(p(c).getStringSet("hidden_apps", emptySet()) ?: emptySet())
     fun setHiddenApps(c: Context, v: Set<String>) = p(c).edit().putStringSet("hidden_apps", HashSet(v)).apply()
 }

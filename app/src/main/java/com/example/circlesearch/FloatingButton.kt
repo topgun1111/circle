@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
@@ -32,6 +33,7 @@ class FloatingButton(
     private val edgeMode: Boolean,
     private val baseAlpha: Float,
     private val edgeDelayMs: Long,
+    private val chromeStyle: Boolean,
     private val onTap: () -> Unit,
     private val onClose: () -> Unit
 ) : View(context) {
@@ -56,6 +58,8 @@ class FloatingButton(
         style = Paint.Style.STROKE
         strokeWidth = 3 * d
     }
+    private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val oval = RectF()
     private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 2.5f * d
@@ -105,6 +109,14 @@ class FloatingButton(
             val s = width * 0.146f
             canvas.drawLine(cx - s, cy - s, cx + s, cy + s, icon)
             canvas.drawLine(cx - s, cy + s, cx + s, cy - s, icon)
+        } else if (chromeStyle) {
+            oval.set(cx - r, cy - r, cx + r, cy + r)
+            canvas.drawCircle(cx, cy, r + d, arcPaint.apply { style = Paint.Style.FILL; color = 0xFFFFFFFF.toInt() })
+            arcPaint.color = 0xFFEA4335.toInt(); canvas.drawArc(oval, 210f, 120f, true, arcPaint)
+            arcPaint.color = 0xFFFBBC05.toInt(); canvas.drawArc(oval, 330f, 120f, true, arcPaint)
+            arcPaint.color = 0xFF34A853.toInt(); canvas.drawArc(oval, 90f, 120f, true, arcPaint)
+            arcPaint.color = 0xFFFFFFFF.toInt(); canvas.drawCircle(cx, cy, r * 0.46f, arcPaint)
+            arcPaint.color = 0xFF4285F4.toInt(); canvas.drawCircle(cx, cy, r * 0.36f, arcPaint)
         } else {
             canvas.drawCircle(cx, cy, r, fill)
             canvas.drawCircle(cx, cy, r, ring)
