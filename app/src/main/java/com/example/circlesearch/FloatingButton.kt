@@ -92,6 +92,11 @@ class FloatingButton(
         scheduleIdle()
     }
 
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (changedView === this && visibility == VISIBLE) scheduleIdle()
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         ring.shader = LinearGradient(
             0f, 0f, w.toFloat(), h.toFloat(),
@@ -198,6 +203,7 @@ class FloatingButton(
             MotionEvent.ACTION_UP -> {
                 h.removeCallbacks(longPress)
                 if (dragging) {
+                    dragging = false
                     Prefs.savePos(context, if (edgeMode) edgeX() else lp.x, lp.y)
                     scheduleIdle()
                 } else if (!longFired) {
@@ -212,6 +218,7 @@ class FloatingButton(
             }
             MotionEvent.ACTION_CANCEL -> {
                 h.removeCallbacks(longPress)
+                dragging = false
                 scheduleIdle()
             }
         }
