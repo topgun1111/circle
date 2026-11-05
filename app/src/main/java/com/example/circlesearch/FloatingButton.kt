@@ -23,7 +23,7 @@ import kotlin.math.abs
  * Long-press = it turns into a red X; tap the X to close the bubble (it reverts by itself after 3 s).
  *
  * Optional edge mode: it stays where you drop it; after the configured idle timeout it glides to the
- * nearest screen edge, tucks half off-screen and fades. Touching it brings it back.
+ * nearest screen edge, tucks mostly off-screen (~70%) and fades. Touching it brings it back.
  */
 @SuppressLint("ViewConstructor")
 class FloatingButton(
@@ -151,8 +151,8 @@ class FloatingButton(
         if (tucked) return
         tucked = true
         val left = lp.x + lp.width / 2 < screenW() / 2
-        animateX(if (left) -lp.width / 2 else screenW() - lp.width / 2)
-        animate().alpha(baseAlpha * 0.5f).setDuration(200).start()
+        animateX(if (left) -(lp.width * 0.7f).toInt() else screenW() - (lp.width * 0.3f).toInt())
+        animate().alpha(baseAlpha * 0.35f).setDuration(200).start()
     }
 
     private fun untuck() {
