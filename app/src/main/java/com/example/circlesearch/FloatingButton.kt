@@ -70,6 +70,7 @@ class FloatingButton(
     private val longPress = Runnable {
         longFired = true
         closeMode = true
+        untuck()
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         invalidate()
         h.postDelayed(revert, 3000)
@@ -177,7 +178,6 @@ class FloatingButton(
             MotionEvent.ACTION_DOWN -> {
                 h.removeCallbacks(idle)
                 anim?.cancel()
-                untuck()
                 downRawX = e.rawX
                 downRawY = e.rawY
                 startX = lp.x
@@ -192,6 +192,14 @@ class FloatingButton(
                 if (!dragging && (abs(dx) > slop || abs(dy) > slop)) {
                     dragging = true
                     h.removeCallbacks(longPress)
+                    if (tucked) { // pull it out from the side, then drag from there
+                        untuck()
+                        startX = lp.x
+                        downRawX = e.rawX
+                        downRawY = e.rawY
+                        startY = lp.y
+                        return true
+                    }
                 }
                 if (dragging) {
                     lp.x = startX + dx.toInt()
@@ -211,6 +219,7 @@ class FloatingButton(
                         h.removeCallbacks(revert)
                         onClose()
                     } else {
+                        if (tucked) untuck()
                         onTap()
                         scheduleIdle()
                     }
