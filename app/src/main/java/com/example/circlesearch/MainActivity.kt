@@ -297,14 +297,33 @@ class MainActivity : Activity() {
             })
         })
 
+        val edgeLabel = label("Move to side after: ${Prefs.floatEdgeDelay(this)} s")
+        val edgeSeek = SeekBar(this).apply {
+            max = 29 // 1..30 s
+            progress = Prefs.floatEdgeDelay(this@MainActivity) - 1
+            isEnabled = Prefs.floatEdge(this@MainActivity)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
+                    edgeLabel.text = "Move to side after: ${p + 1} s"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {
+                    Prefs.setFloatEdgeDelay(this@MainActivity, (sb?.progress ?: 2) + 1)
+                    applyFloat()
+                }
+            })
+        }
         root.addView(CheckBox(this).apply {
-            text = "Snap to screen edge and fade when idle"
+            text = "Move to screen edge and fade when idle"
             isChecked = Prefs.floatEdge(this@MainActivity)
             setOnCheckedChangeListener { _, on ->
                 Prefs.setFloatEdge(this@MainActivity, on)
+                edgeSeek.isEnabled = on
                 applyFloat()
             }
         })
+        root.addView(edgeLabel)
+        root.addView(edgeSeek)
 
         hiddenInfo = label("")
         root.addView(hiddenInfo)

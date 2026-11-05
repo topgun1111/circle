@@ -346,6 +346,7 @@ class CircleService : AccessibilityService() {
             lp = lp,
             edgeMode = Prefs.floatEdge(this),
             baseAlpha = Prefs.floatOpacity(this) / 100f,
+            edgeDelayMs = Prefs.floatEdgeDelay(this) * 1000L,
             onTap = { trigger(150) },
             onClose = {
                 Prefs.setFloating(this, false)

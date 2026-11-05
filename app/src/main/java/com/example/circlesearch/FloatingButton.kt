@@ -21,8 +21,8 @@ import kotlin.math.abs
  * Small draggable bubble. Tap = start Circle to Search.
  * Long-press = it turns into a red X; tap the X to close the bubble (it reverts by itself after 3 s).
  *
- * Optional edge mode: after you let go it snaps to the nearest screen edge, and after 3 s idle it
- * tucks half off-screen and fades. Touching it brings it back.
+ * Optional edge mode: it stays where you drop it; after the configured idle timeout it glides to the
+ * nearest screen edge, tucks half off-screen and fades. Touching it brings it back.
  */
 @SuppressLint("ViewConstructor")
 class FloatingButton(
@@ -31,6 +31,7 @@ class FloatingButton(
     private val lp: WindowManager.LayoutParams,
     private val edgeMode: Boolean,
     private val baseAlpha: Float,
+    private val edgeDelayMs: Long,
     private val onTap: () -> Unit,
     private val onClose: () -> Unit
 ) : View(context) {
@@ -117,7 +118,7 @@ class FloatingButton(
 
     private fun scheduleIdle() {
         h.removeCallbacks(idle)
-        if (edgeMode) h.postDelayed(idle, 3000)
+        if (edgeMode) h.postDelayed(idle, edgeDelayMs)
     }
 
     private fun edgeX(): Int = if (lp.x + lp.width / 2 < screenW() / 2) 0 else screenW() - lp.width
@@ -185,7 +186,6 @@ class FloatingButton(
             MotionEvent.ACTION_UP -> {
                 h.removeCallbacks(longPress)
                 if (dragging) {
-                    if (edgeMode) animateX(edgeX())
                     Prefs.savePos(context, if (edgeMode) edgeX() else lp.x, lp.y)
                     scheduleIdle()
                 } else if (!longFired) {
