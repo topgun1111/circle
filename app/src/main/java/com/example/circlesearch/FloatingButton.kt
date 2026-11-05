@@ -28,7 +28,7 @@ import kotlin.math.hypot
  *
  * Edge mode, docked at a side: hold the bubble and pull it towards the screen centre. It stretches like
  * rubber but stays anchored to the edge; past the arming distance (it turns bigger + haptic tick) let go
- * and it snaps back and starts the capture. Dragging up/down slides it along the edge.
+ * and it snaps back like a rubber band; once it has settled the capture starts. Dragging up/down slides it along the edge.
  *
  * Optional edge mode: it stays where you drop it; after the configured idle timeout it glides to the
  * nearest screen edge, tucks mostly off-screen (~70%) and fades. Touching it brings it back.
@@ -284,11 +284,10 @@ class FloatingButton(
         armed = false
         if (fire) {
             performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-            onTap()
         }
         rubberAnim?.cancel()
         rubberAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 260
+            duration = 240
             interpolator = OvershootInterpolator(2.5f)
             addUpdateListener {
                 val t = it.animatedValue as Float
@@ -299,7 +298,11 @@ class FloatingButton(
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 private var cancelled = false
                 override fun onAnimationCancel(a: android.animation.Animator) { cancelled = true }
-                override fun onAnimationEnd(a: android.animation.Animator) { if (!cancelled) finishRubber() }
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    if (cancelled) return
+                    finishRubber() // stretch gone and window back to normal size first...
+                    if (fire) onTap() // ...then capture, so no stretch ends up in the screenshot
+                }
             })
             start()
         }
