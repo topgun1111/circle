@@ -243,6 +243,26 @@ class MainActivity : Activity() {
         })
         root.addView(label("Tap twice, quickly, near the middle of the back. Works with the screen on; raise sensitivity if it misses, lower it if it fires by accident. Keep the keep-alive notification on.", 13f))
 
+        // Double tap on the front camera
+        root.addView(label("Front camera gestures", 17f, true))
+        root.addView(CheckBox(this).apply {
+            text = "Trigger Circle to Search by double-tapping the front camera"
+            isChecked = Prefs.cameraTap(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setCameraTap(this@MainActivity, on)
+                CircleService.instance?.applyCameraTap()
+            }
+        })
+        root.addView(CheckBox(this).apply {
+            text = "Trigger Circle to Search by pressing and holding the front camera"
+            isChecked = Prefs.cameraHold(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setCameraHold(this@MainActivity, on)
+                CircleService.instance?.applyCameraTap()
+            }
+        })
+        root.addView(label("Double-tap the camera hole / notch at the top of the screen. While on, taps in that small area are used by this app.", 13f))
+
         // Floating button
         root.addView(label("5. Floating button", 17f, true))
         floatBox = CheckBox(this).apply {
@@ -341,44 +361,6 @@ class MainActivity : Activity() {
             label(
                 "Tap the bubble to search, drag it anywhere. To close it: press and hold until it turns into a red X, " +
                     "then tap the X (or untick this box). Switch it back on here any time.",
-                13f
-            )
-        )
-
-        // Edge pull zones
-        root.addView(label("Edge pull zones", 17f, true))
-        root.addView(CheckBox(this).apply {
-            text = "Pull from the side of the screen to capture"
-            isChecked = Prefs.zones(this@MainActivity)
-            setOnCheckedChangeListener { _, on ->
-                Prefs.setZones(this@MainActivity, on)
-                CircleService.instance?.applyZones()
-            }
-        })
-        val zwLabel = label("Edge strip width: ${Prefs.zoneWidth(this)} dp")
-        root.addView(zwLabel)
-        root.addView(SeekBar(this).apply {
-            max = 42 // 6..48 dp
-            progress = Prefs.zoneWidth(this@MainActivity) - 6
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
-                    zwLabel.text = "Edge strip width: ${p + 6} dp"
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {
-                    Prefs.setZoneWidth(this@MainActivity, (sb?.progress ?: 6) + 6)
-                    CircleService.instance?.applyZones()
-                }
-            })
-        })
-        root.addView(button("Set capture locations on screen…") {
-            startActivity(Intent(this, ZoneEditorActivity::class.java))
-        })
-        root.addView(
-            label(
-                "Swipe in quickly from the edge inside a zone (by default the top 30% of each side), like the back gesture. " +
-                    "A zone is a thin strip, so it takes over touches " +
-                    "there, and on gesture navigation the system back swipe can win at the very edge.",
                 13f
             )
         )
