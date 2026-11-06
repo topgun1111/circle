@@ -13,10 +13,6 @@ import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
-import android.graphics.Rect
-import android.content.res.Configuration
-import android.view.GestureDetector
-import android.view.MotionEvent
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -63,65 +59,13 @@ class CircleService : AccessibilityService() {
         try {
             hiddenApps = Prefs.hiddenApps(this)
             applyFloating()
+            applyZones()
         } catch (e: Exception) {
             Diag.save(this, "onServiceConnected failed", e)
             toast("Circle to Search: startup error, see Settings > Diagnostics")
         }
         refreshKeepAlive()
         applyBackTap()
-        applyCameraTap()
-    }
-
-    // ---- Double tap on the front camera -------------------------------------
-    // A transparent touch zone over the camera cut-out (punch hole / notch); two quick taps = trigger.
-    private var cameraZone: View? = null
-
-    fun applyCameraTap() {
-        removeCameraZone()
-        val tapOn = Prefs.cameraTap(this); val holdOn = Prefs.cameraHold(this)
-        if (!tapOn && !holdOn) return
-        try {
-            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-            val dm = resources.displayMetrics
-            val min = (56 * dm.density).toInt() // comfortable finger target even for a tiny punch hole
-            val cut = wm.currentWindowMetrics.windowInsets.displayCutout?.boundingRects
-                ?.firstOrNull { !it.isEmpty }
-            // No reported cut-out: assume a centred camera at the top edge.
-            val r = cut ?: Rect(dm.widthPixels / 2 - min / 2, 0, dm.widthPixels / 2 + min / 2, min)
-            val w = maxOf(r.width(), min); val h = maxOf(r.height(), min)
-            val gd = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDown(e: MotionEvent) = true
-                override fun onDoubleTap(e: MotionEvent): Boolean { if (tapOn) main.post { trigger() }; return true }
-                override fun onLongPress(e: MotionEvent) { if (holdOn) main.post { trigger() } }
-            })
-            val v = View(this).apply { setOnTouchListener { _, ev -> gd.onTouchEvent(ev) } }
-            val lp = WindowManager.LayoutParams(
-                w, h, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = r.centerX() - w / 2; y = maxOf(0, r.centerY() - h / 2)
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            }
-            wm.addView(v, lp)
-            cameraZone = v
-        } catch (e: Exception) {
-            Diag.save(this, "camera zone failed", e)
-        }
-    }
-
-    private fun removeCameraZone() {
-        val v = cameraZone ?: return
-        cameraZone = null
-        try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(v) } catch (_: Exception) {}
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        if (cameraZone != null) main.post { applyCameraTap() } // rotation moves the cut-out
     }
 
     /** Starts/stops double-tap-on-back detection and applies sensitivity. Safe to call any time. */
@@ -255,9 +199,10 @@ class CircleService : AccessibilityService() {
         instance = null
         backTap?.stop(); backTap = null
         removeTouchWatch()
-        removeCameraZone()
         stopKeepAlive()
         hideFloating()
+        removeZones()
+        removeCameraZone()
         removeOverlay()
         return super.onUnbind(intent)
     }
@@ -443,6 +388,121 @@ class CircleService : AccessibilityService() {
 
     private fun syncFloating() {
         floating?.visibility = if (suppressed || hiddenByApp) View.INVISIBLE else View.VISIBLE
+        syncZones()
+    }
+
+    // ---- Edge pull zones --------------------------------------------------
+
+    private val zoneViews = mutableListOf<EdgeZoneView>()
+    private var zonesPaused = false // true while the zone editor is open
+
+    /** Rebuilds the zones after the editor / settings changed them. */
+    fun applyZones() {
+        removeZones()
+        syncZones()
+    }
+
+    fun setZonesPaused(p: Boolean) {
+        zonesPaused = p
+        syncZones()
+    }
+
+    private fun syncZones() {
+        val want = Prefs.zones(this) && !suppressed && !hiddenByApp && !zonesPaused
+        if (want && zoneViews.isEmpty()) addZones() else if (!want && zoneViews.isNotEmpty()) removeZones()
+        val wantCam = (Prefs.camDouble(this) || Prefs.camHold(this)) && !suppressed && !hiddenByApp && !zonesPaused
+        if (wantCam && cameraView == null) addCameraZone() else if (!wantCam && cameraView != null) removeCameraZone()
+    }
+
+    // ---- Front camera zone ------------------------------------------------
+
+    private var cameraView: CameraZoneView? = null
+
+    /** Rebuilds the camera zone after its settings changed. */
+    fun applyCameraZone() {
+        removeCameraZone()
+        syncZones()
+    }
+
+    private fun addCameraZone() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val d = resources.displayMetrics.density
+        val b = wm.currentWindowMetrics.bounds
+        // Use the real cut-out when the device reports one; otherwise a centred strip at the top.
+        val cut = wm.currentWindowMetrics.windowInsets.displayCutout?.boundingRectTop
+            ?.takeIf { !it.isEmpty }
+        val pad = (6 * d).toInt()
+        val minSize = (44 * d).toInt()
+        val w = ((cut?.width() ?: 0) + pad * 2).coerceAtLeast(minSize)
+        val h = ((cut?.height() ?: 0) + pad * 2).coerceAtLeast(minSize)
+        val cx = cut?.centerX() ?: (b.width() / 2)
+        val lp = WindowManager.LayoutParams(
+            w, h,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (cx - w / 2).coerceIn(0, (b.width() - w).coerceAtLeast(0))
+            y = 0
+        }
+        val v = CameraZoneView(this, Prefs.camDouble(this), Prefs.camHold(this)) { trigger(150) }
+        try {
+            wm.addView(v, lp)
+            cameraView = v
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun removeCameraZone() {
+        val v = cameraView ?: return
+        cameraView = null
+        try { (getSystemService(WINDOW_SERVICE) as WindowManager).removeViewImmediate(v) } catch (_: Exception) {}
+    }
+
+    private fun addZones() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val b = wm.currentWindowMetrics.bounds
+        val d = resources.displayMetrics.density
+        for (side in 0..1) {
+            if (!Prefs.zoneOn(this, side)) continue
+            val top = (Prefs.zoneTop(this, side) * b.height()).toInt()
+            val h = ((Prefs.zoneBottom(this, side) - Prefs.zoneTop(this, side)) * b.height()).toInt()
+                .coerceAtLeast((48 * d).toInt())
+            val lp = WindowManager.LayoutParams(
+                (Prefs.zoneWidth(this) * d).toInt(), h,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or (if (side == 0) Gravity.START else Gravity.END)
+                x = 0
+                y = top
+            }
+            val v = EdgeZoneView(this, side == 0) { trigger(150) }
+            try {
+                wm.addView(v, lp)
+                zoneViews.add(v)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun removeZones() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        zoneViews.forEach { try { wm.removeViewImmediate(it) } catch (_: Exception) {} }
+        zoneViews.clear()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (zoneViews.isNotEmpty()) applyZones() // positions are in pixels of the old orientation
+        if (cameraView != null) applyCameraZone()
     }
 
     /** Rebuilds the bubble after size / opacity / edge-mode settings changed. */
