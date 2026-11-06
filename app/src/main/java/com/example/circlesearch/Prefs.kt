@@ -75,9 +75,11 @@ object Prefs {
     fun hiddenApps(c: Context): Set<String> = HashSet(p(c).getStringSet("hidden_apps", emptySet()) ?: emptySet())
     fun setHiddenApps(c: Context, v: Set<String>) = p(c).edit().putStringSet("hidden_apps", HashSet(v)).apply()
 
-    // Front camera triggers (double tap / press and hold on the camera cut-out).
+    // Front camera triggers (double tap / press and hold / swipe down on the camera cut-out).
     fun camDouble(c: Context) = p(c).getBoolean("cam_double", false)
     fun setCamDouble(c: Context, v: Boolean) = p(c).edit().putBoolean("cam_double", v).apply()
     fun camHold(c: Context) = p(c).getBoolean("cam_hold", false)
     fun setCamHold(c: Context, v: Boolean) = p(c).edit().putBoolean("cam_hold", v).apply()
+    fun camSwipe(c: Context) = p(c).getBoolean("cam_swipe", false)
+    fun setCamSwipe(c: Context, v: Boolean) = p(c).edit().putBoolean("cam_swipe", v).apply()
 }

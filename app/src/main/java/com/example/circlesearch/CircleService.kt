@@ -410,7 +410,7 @@ class CircleService : AccessibilityService() {
     private fun syncZones() {
         val want = Prefs.zones(this) && !suppressed && !hiddenByApp && !zonesPaused
         if (want && zoneViews.isEmpty()) addZones() else if (!want && zoneViews.isNotEmpty()) removeZones()
-        val wantCam = (Prefs.camDouble(this) || Prefs.camHold(this)) && !suppressed && !hiddenByApp && !zonesPaused
+        val wantCam = (Prefs.camDouble(this) || Prefs.camHold(this) || Prefs.camSwipe(this)) && !suppressed && !hiddenByApp && !zonesPaused
         if (wantCam && cameraView == null) addCameraZone() else if (!wantCam && cameraView != null) removeCameraZone()
     }
 
@@ -449,7 +449,7 @@ class CircleService : AccessibilityService() {
             x = (cx - w / 2).coerceIn(0, (b.width() - w).coerceAtLeast(0))
             y = 0
         }
-        val v = CameraZoneView(this, Prefs.camDouble(this), Prefs.camHold(this)) { trigger(150) }
+        val v = CameraZoneView(this, Prefs.camDouble(this), Prefs.camHold(this), Prefs.camSwipe(this)) { trigger(150) }
         try {
             wm.addView(v, lp)
             cameraView = v

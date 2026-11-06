@@ -401,10 +401,18 @@ class MainActivity : Activity() {
                 CircleService.instance?.applyCameraZone()
             }
         })
+        root.addView(CheckBox(this).apply {
+            text = "Swipe down from the front camera to capture"
+            isChecked = Prefs.camSwipe(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setCamSwipe(this@MainActivity, on)
+                CircleService.instance?.applyCameraZone()
+            }
+        })
         root.addView(
             label(
-                "Tap twice quickly, or hold your finger, on the camera cut-out at the top of the screen. " +
-                    "Use either one or both. Only the small area around the camera takes touches.",
+                "Tap twice quickly, hold your finger, or swipe down, starting on the camera cut-out at the top of the screen. " +
+                    "Use any or all of them. Only the small area around the camera takes touches.",
                 13f
             )
         )

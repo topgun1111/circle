@@ -8,17 +8,19 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * Invisible touch target over the front camera cut-out. Double tap and/or press-and-hold
- * (each can be switched on separately) starts a capture.
+ * Invisible touch target over the front camera cut-out. Double tap, press-and-hold and/or a
+ * swipe down from the camera (each can be switched on separately) starts a capture.
  */
 @SuppressLint("ViewConstructor")
 class CameraZoneView(
     context: Context,
     private val doubleTap: Boolean,
     private val hold: Boolean,
+    private val swipe: Boolean,
     private val onCapture: () -> Unit
 ) : View(context) {
 
@@ -26,6 +28,7 @@ class CameraZoneView(
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private val tapTimeout = ViewConfiguration.getTapTimeout().toLong().coerceAtLeast(200L)
     private val gap = ViewConfiguration.getDoubleTapTimeout().toLong()
+    private val swipeTrigger = 40 * resources.displayMetrics.density // downward travel that fires the capture
 
     private var downX = 0f
     private var downY = 0f
@@ -49,9 +52,14 @@ class CameraZoneView(
                 downX = e.rawX; downY = e.rawY; downAt = e.eventTime; fired = false
                 if (hold) h.postDelayed(holdRunnable, ViewConfiguration.getLongPressTimeout().toLong())
             }
-            MotionEvent.ACTION_MOVE -> if (hypot(e.rawX - downX, e.rawY - downY) > slop) {
-                h.removeCallbacks(holdRunnable)
-                lastTapAt = 0L
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.rawX - downX
+                val dy = e.rawY - downY
+                if (hypot(dx, dy) > slop) {
+                    h.removeCallbacks(holdRunnable)
+                    lastTapAt = 0L
+                }
+                if (swipe && !fired && dy >= swipeTrigger && dy > abs(dx)) fire()
             }
             MotionEvent.ACTION_UP -> {
                 h.removeCallbacks(holdRunnable)
