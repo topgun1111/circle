@@ -61,6 +61,14 @@ object Prefs {
     fun setFloatEdgeDelay(c: Context, v: Int) = p(c).edit().putInt("float_edge_delay", v).apply()
     fun floatChrome(c: Context) = p(c).getBoolean("float_chrome", true)
     fun setFloatChrome(c: Context, v: Boolean) = p(c).edit().putBoolean("float_chrome", v).apply()
+    // Edge pull zones. side: 0 = left, 1 = right. top/bottom are fractions of the screen height.
+    fun zones(c: Context) = p(c).getBoolean("zones", true)
+    fun setZones(c: Context, v: Boolean) = p(c).edit().putBoolean("zones", v).apply()
+    fun zoneOn(c: Context, side: Int) = p(c).getBoolean("zone_on_$side", true)
+    fun zoneTop(c: Context, side: Int) = p(c).getFloat("zone_top_$side", 0f)
+    fun zoneBottom(c: Context, side: Int) = p(c).getFloat("zone_bottom_$side", 0.30f)
+    fun saveZone(c: Context, side: Int, on: Boolean, top: Float, bottom: Float) =
+        p(c).edit().putBoolean("zone_on_$side", on).putFloat("zone_top_$side", top).putFloat("zone_bottom_$side", bottom).apply()
     fun hiddenApps(c: Context): Set<String> = HashSet(p(c).getStringSet("hidden_apps", emptySet()) ?: emptySet())
     fun setHiddenApps(c: Context, v: Set<String>) = p(c).edit().putStringSet("hidden_apps", HashSet(v)).apply()
 }

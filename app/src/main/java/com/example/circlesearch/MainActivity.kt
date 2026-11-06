@@ -345,6 +345,28 @@ class MainActivity : Activity() {
             )
         )
 
+        // Edge pull zones
+        root.addView(label("Edge pull zones", 17f, true))
+        root.addView(CheckBox(this).apply {
+            text = "Pull from the side of the screen to capture"
+            isChecked = Prefs.zones(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setZones(this@MainActivity, on)
+                CircleService.instance?.applyZones()
+            }
+        })
+        root.addView(button("Set capture locations on screen…") {
+            startActivity(Intent(this, ZoneEditorActivity::class.java))
+        })
+        root.addView(
+            label(
+                "Press inside a zone (by default the top 30% of each side) and pull towards the middle. " +
+                    "When it turns green, let go to capture. A zone is a thin strip, so it takes over touches " +
+                    "there, and on gesture navigation the system back swipe can win at the very edge.",
+                13f
+            )
+        )
+
         // Test
         root.addView(label("Try it", 17f, true))
         root.addView(button("Test now (starts in 1 second)") {

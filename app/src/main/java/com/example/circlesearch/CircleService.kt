@@ -59,6 +59,7 @@ class CircleService : AccessibilityService() {
         try {
             hiddenApps = Prefs.hiddenApps(this)
             applyFloating()
+            applyZones()
         } catch (e: Exception) {
             Diag.save(this, "onServiceConnected failed", e)
             toast("Circle to Search: startup error, see Settings > Diagnostics")
@@ -200,6 +201,7 @@ class CircleService : AccessibilityService() {
         removeTouchWatch()
         stopKeepAlive()
         hideFloating()
+        removeZones()
         removeOverlay()
         return super.onUnbind(intent)
     }
@@ -385,6 +387,69 @@ class CircleService : AccessibilityService() {
 
     private fun syncFloating() {
         floating?.visibility = if (suppressed || hiddenByApp) View.INVISIBLE else View.VISIBLE
+        syncZones()
+    }
+
+    // ---- Edge pull zones --------------------------------------------------
+
+    private val zoneViews = mutableListOf<EdgeZoneView>()
+    private var zonesPaused = false // true while the zone editor is open
+
+    /** Rebuilds the zones after the editor / settings changed them. */
+    fun applyZones() {
+        removeZones()
+        syncZones()
+    }
+
+    fun setZonesPaused(p: Boolean) {
+        zonesPaused = p
+        syncZones()
+    }
+
+    private fun syncZones() {
+        val want = Prefs.zones(this) && !suppressed && !hiddenByApp && !zonesPaused
+        if (want && zoneViews.isEmpty()) addZones() else if (!want && zoneViews.isNotEmpty()) removeZones()
+    }
+
+    private fun addZones() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val b = wm.currentWindowMetrics.bounds
+        val d = resources.displayMetrics.density
+        for (side in 0..1) {
+            if (!Prefs.zoneOn(this, side)) continue
+            val top = (Prefs.zoneTop(this, side) * b.height()).toInt()
+            val h = ((Prefs.zoneBottom(this, side) - Prefs.zoneTop(this, side)) * b.height()).toInt()
+                .coerceAtLeast((48 * d).toInt())
+            val lp = WindowManager.LayoutParams(
+                (ZONE_WIDTH_DP * d).toInt(), h,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or (if (side == 0) Gravity.START else Gravity.END)
+                x = 0
+                y = top
+            }
+            val v = EdgeZoneView(this, wm, side == 0) { trigger(150) }
+            try {
+                wm.addView(v, lp)
+                zoneViews.add(v)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun removeZones() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        zoneViews.forEach { try { wm.removeViewImmediate(it) } catch (_: Exception) {} }
+        zoneViews.clear()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (zoneViews.isNotEmpty()) applyZones() // positions are in pixels of the old orientation
     }
 
     /** Rebuilds the bubble after size / opacity / edge-mode settings changed. */

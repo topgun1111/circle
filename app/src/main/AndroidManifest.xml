@@ -40,6 +40,12 @@
             android:name=".SettingsActivity"
             android:exported="false" />
 
+        <!-- Visual editor for the edge pull zones -->
+        <activity
+            android:name=".ZoneEditorActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
         <!-- Invisible launcher entry: pick this as the action for the side button
              (or add it as a shortcut) if the button does not send key events. -->
         <activity
