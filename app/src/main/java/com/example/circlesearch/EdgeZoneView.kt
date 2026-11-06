@@ -56,7 +56,7 @@ class EdgeZoneView(
 
         override fun onDraw(canvas: Canvas) {
             getLocationOnScreen(loc)
-            val ax = (if (left) 0f else resources.displayMetrics.widthPixels.toFloat()) - loc[0]
+            val ax = (if (this@EdgeZoneView.left) 0f else resources.displayMetrics.widthPixels.toFloat()) - loc[0]
             val ay = downY - loc[1]
             val hx = ax + pullX
             val hy = ay + pullY
