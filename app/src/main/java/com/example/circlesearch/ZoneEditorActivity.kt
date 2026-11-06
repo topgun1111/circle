@@ -29,12 +29,25 @@ class ZoneEditorActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val d = resources.displayMetrics.density
-        window.setDecorFitsSystemWindows(false)
-        window.attributes = window.attributes.apply {
-            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        try {
+            build()
+        } catch (e: Throwable) {
+            Diag.save(this, "Zone editor failed to open", e)
+            android.widget.Toast.makeText(this, "Editor failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            finish()
         }
-        window.insetsController?.hide(WindowInsets.Type.systemBars())
+    }
+
+    private fun build() {
+        val d = resources.displayMetrics.density
+        // Cosmetic only: full-screen so the zones line up with the real screen edges.
+        try {
+            window.setDecorFitsSystemWindows(false)
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } catch (_: Throwable) {
+        }
 
         editor = Editor(this)
 
@@ -76,9 +89,10 @@ class ZoneEditorActivity : Activity() {
             (300 * d).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         setContentView(root)
 
-        // Best effort: stop the system back-swipe from eating drags that start at the screen edge.
+        // Best effort: hide the bars and stop the system back-swipe from eating edge drags.
+        try { window.insetsController?.hide(WindowInsets.Type.systemBars()) } catch (_: Throwable) {}
         root.post {
-            root.systemGestureExclusionRects = listOf(Rect(0, 0, root.width, root.height))
+            try { root.systemGestureExclusionRects = listOf(Rect(0, 0, root.width, root.height)) } catch (_: Throwable) {}
         }
     }
 
