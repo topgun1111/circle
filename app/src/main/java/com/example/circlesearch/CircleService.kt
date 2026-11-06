@@ -432,7 +432,7 @@ class CircleService : AccessibilityService() {
                 x = 0
                 y = top
             }
-            val v = EdgeZoneView(this, wm, side == 0) { trigger(150) }
+            val v = EdgeZoneView(this, side == 0) { trigger(150) }
             try {
                 wm.addView(v, lp)
                 zoneViews.add(v)

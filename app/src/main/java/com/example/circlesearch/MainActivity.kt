@@ -376,8 +376,8 @@ class MainActivity : Activity() {
         })
         root.addView(
             label(
-                "Press inside a zone (by default the top 30% of each side) and pull towards the middle. " +
-                    "When it turns green, let go to capture. A zone is a thin strip, so it takes over touches " +
+                "Swipe in quickly from the edge inside a zone (by default the top 30% of each side), like the back gesture. " +
+                    "A zone is a thin strip, so it takes over touches " +
                     "there, and on gesture navigation the system back swipe can win at the very edge.",
                 13f
             )
