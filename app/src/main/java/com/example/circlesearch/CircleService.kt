@@ -203,6 +203,7 @@ class CircleService : AccessibilityService() {
         hideFloating()
         removeZones()
         removeCameraZone()
+        removeCornerZones()
         removeOverlay()
         return super.onUnbind(intent)
     }
@@ -412,6 +413,51 @@ class CircleService : AccessibilityService() {
         if (want && zoneViews.isEmpty()) addZones() else if (!want && zoneViews.isNotEmpty()) removeZones()
         val wantCam = (Prefs.camDouble(this) || Prefs.camHold(this) || Prefs.camSwipe(this)) && !suppressed && !hiddenByApp && !zonesPaused
         if (wantCam && cameraView == null) addCameraZone() else if (!wantCam && cameraView != null) removeCameraZone()
+        val wantCorner = (Prefs.cornerOn(this, 0) || Prefs.cornerOn(this, 1)) && !suppressed && !hiddenByApp && !zonesPaused
+        if (wantCorner && cornerViews.isEmpty()) addCornerZones() else if (!wantCorner && cornerViews.isNotEmpty()) removeCornerZones()
+    }
+
+    // ---- Top corner zones -------------------------------------------------
+
+    private val cornerViews = mutableListOf<CornerZoneView>()
+
+    /** Rebuilds the corner zones after the selection changed. */
+    fun applyCornerZones() {
+        removeCornerZones()
+        syncZones()
+    }
+
+    private fun addCornerZones() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val size = (56 * resources.displayMetrics.density).toInt()
+        for (side in 0..1) {
+            if (!Prefs.cornerOn(this, side)) continue
+            val lp = WindowManager.LayoutParams(
+                size, size,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or (if (side == 0) Gravity.START else Gravity.END)
+                x = 0
+                y = 0
+            }
+            val v = CornerZoneView(this, side == 0) { trigger(150) }
+            try {
+                wm.addView(v, lp)
+                cornerViews.add(v)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun removeCornerZones() {
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        cornerViews.forEach { try { wm.removeViewImmediate(it) } catch (_: Exception) {} }
+        cornerViews.clear()
     }
 
     // ---- Front camera zone ------------------------------------------------
@@ -503,6 +549,7 @@ class CircleService : AccessibilityService() {
         super.onConfigurationChanged(newConfig)
         if (zoneViews.isNotEmpty()) applyZones() // positions are in pixels of the old orientation
         if (cameraView != null) applyCameraZone()
+        if (cornerViews.isNotEmpty()) applyCornerZones()
     }
 
     /** Rebuilds the bubble after size / opacity / edge-mode settings changed. */

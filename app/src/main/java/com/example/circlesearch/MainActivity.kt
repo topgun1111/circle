@@ -417,6 +417,33 @@ class MainActivity : Activity() {
             )
         )
 
+        // Top corners
+        root.addView(label("Top corners", 17f, true))
+        root.addView(CheckBox(this).apply {
+            text = "Swipe from the top left corner to capture"
+            isChecked = Prefs.cornerOn(this@MainActivity, 0)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setCornerOn(this@MainActivity, 0, on)
+                CircleService.instance?.applyCornerZones()
+            }
+        })
+        root.addView(CheckBox(this).apply {
+            text = "Swipe from the top right corner to capture"
+            isChecked = Prefs.cornerOn(this@MainActivity, 1)
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setCornerOn(this@MainActivity, 1, on)
+                CircleService.instance?.applyCornerZones()
+            }
+        })
+        root.addView(
+            label(
+                "Start a swipe in the chosen corner and drag down or towards the middle. " +
+                    "Only a small square in the corner takes touches. On the right corner this can " +
+                    "compete with the system quick-settings pull-down.",
+                13f
+            )
+        )
+
         // Test
         root.addView(label("Try it", 17f, true))
         root.addView(button("Test now (starts in 1 second)") {

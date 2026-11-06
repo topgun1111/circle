@@ -82,4 +82,8 @@ object Prefs {
     fun setCamHold(c: Context, v: Boolean) = p(c).edit().putBoolean("cam_hold", v).apply()
     fun camSwipe(c: Context) = p(c).getBoolean("cam_swipe", false)
     fun setCamSwipe(c: Context, v: Boolean) = p(c).edit().putBoolean("cam_swipe", v).apply()
+
+    // Top corner swipe triggers. side: 0 = top left, 1 = top right.
+    fun cornerOn(c: Context, side: Int) = p(c).getBoolean("corner_on_$side", false)
+    fun setCornerOn(c: Context, side: Int, v: Boolean) = p(c).edit().putBoolean("corner_on_$side", v).apply()
 }
