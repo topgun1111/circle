@@ -421,7 +421,7 @@ class CircleService : AccessibilityService() {
             val h = ((Prefs.zoneBottom(this, side) - Prefs.zoneTop(this, side)) * b.height()).toInt()
                 .coerceAtLeast((48 * d).toInt())
             val lp = WindowManager.LayoutParams(
-                (ZONE_WIDTH_DP * d).toInt(), h,
+                (Prefs.zoneWidth(this) * d).toInt(), h,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or

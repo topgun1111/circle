@@ -118,7 +118,7 @@ class ZoneEditorActivity : Activity() {
         }
 
         private fun rect(s: Int): RectF {
-            val w = ZONE_WIDTH_DP * d
+            val w = Prefs.zoneWidth(context) * d
             val x0 = if (s == 0) 0f else width - w
             r.set(x0, top[s] * height, x0 + w, bottom[s] * height)
             return r

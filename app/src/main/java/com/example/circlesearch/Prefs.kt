@@ -64,6 +64,9 @@ object Prefs {
     // Edge pull zones. side: 0 = left, 1 = right. top/bottom are fractions of the screen height.
     fun zones(c: Context) = p(c).getBoolean("zones", true)
     fun setZones(c: Context, v: Boolean) = p(c).edit().putBoolean("zones", v).apply()
+    /** Width of the invisible edge strip in dp (6..48). */
+    fun zoneWidth(c: Context) = p(c).getInt("zone_width", 12)
+    fun setZoneWidth(c: Context, v: Int) = p(c).edit().putInt("zone_width", v).apply()
     fun zoneOn(c: Context, side: Int) = p(c).getBoolean("zone_on_$side", true)
     fun zoneTop(c: Context, side: Int) = p(c).getFloat("zone_top_$side", 0f)
     fun zoneBottom(c: Context, side: Int) = p(c).getFloat("zone_bottom_$side", 0.30f)

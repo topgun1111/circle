@@ -19,8 +19,6 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.hypot
 
-const val ZONE_WIDTH_DP = 32
-
 /**
  * Thin invisible strip along one screen edge. Press inside it and pull towards the screen centre:
  * a rubber neck stretches from the edge to your finger; past the arming distance it turns green

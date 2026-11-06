@@ -355,6 +355,22 @@ class MainActivity : Activity() {
                 CircleService.instance?.applyZones()
             }
         })
+        val zwLabel = label("Edge strip width: ${Prefs.zoneWidth(this)} dp")
+        root.addView(zwLabel)
+        root.addView(SeekBar(this).apply {
+            max = 42 // 6..48 dp
+            progress = Prefs.zoneWidth(this@MainActivity) - 6
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, user: Boolean) {
+                    zwLabel.text = "Edge strip width: ${p + 6} dp"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {
+                    Prefs.setZoneWidth(this@MainActivity, (sb?.progress ?: 6) + 6)
+                    CircleService.instance?.applyZones()
+                }
+            })
+        })
         root.addView(button("Set capture locations on screen…") {
             startActivity(Intent(this, ZoneEditorActivity::class.java))
         })
